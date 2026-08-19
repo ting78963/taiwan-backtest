@@ -147,6 +147,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
     </div>
 
     <div class="nav-section">分析</div>
+    <div class="nav-item" onclick="nav('analyze',this)"><span class="ic">🔬</span>條件探索器</div>
     <div class="nav-item" onclick="nav('results',this)"><span class="ic">📈</span>結果報表</div>
     <div class="nav-item" onclick="nav('master',this)"><span class="ic">🗃️</span>Event Master</div>
     <div class="nav-item" onclick="nav('export',this)"><span class="ic">💾</span>匯出 CSV</div>
@@ -399,6 +400,64 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
   </div>
 </div>
 
+<!-- 條件探索器 -->
+<div id="page-analyze" class="page">
+  <div class="section-title">條件探索器</div>
+  <div class="section-sub">設定研究條件 → 直接查詢 10:00 前各級漲幅達成率（不需先跑 Backtest）</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>🔬</span><span class="panel-title">研究條件</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>開始日期</label><input type="date" id="az-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="az-to"></div>
+        <div class="fg">
+          <label>進場基準</label>
+          <select id="az-entry">
+            <option value="next_open" selected>next_open（預設）</option>
+            <option value="bar_close">bar_close</option>
+            <option value="next_close">next_close</option>
+          </select>
+        </div>
+      </div>
+      <hr class="divider">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">五項研究條件（留空 = 不篩選）</div>
+      <div class="form-grid">
+        <div class="fg"><label>Attack 次數 ≥</label><input type="number" id="az-atk-num" placeholder="例：3" min="1" step="1"></div>
+        <div class="fg"><label>Attack Volume V1B ≥（張）</label><input type="number" id="az-atk-vol" placeholder="例：500" min="0" step="100"></div>
+        <div class="fg"><label>C31 ≥</label><input type="number" id="az-c31" placeholder="例：0.8" step="0.1"></div>
+        <div class="fg"><label>量比 ≥</label><input type="number" id="az-vr" placeholder="例：2.0" step="0.5"></div>
+        <div class="fg"><label>早盤漲幅 ≥ (%)</label><input type="number" id="az-pct" placeholder="例：4" step="0.5"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="runAnalyze()">🔬 分析</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="az-result" style="display:none">
+    <div class="panel">
+      <div class="panel-header"><span>📊</span><span class="panel-title">10:00 前達成率矩陣</span></div>
+      <div class="panel-body">
+        <div id="az-meta" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>
+        <table class="data-table" style="width:100%">
+          <thead>
+            <tr>
+              <th>TP 目標</th>
+              <th>達成數</th>
+              <th>樣本數</th>
+              <th>達成率</th>
+              <th>視覺化</th>
+            </tr>
+          </thead>
+          <tbody id="az-tbody"></tbody>
+        </table>
+        <div id="az-filters" style="margin-top:12px;font-size:11px;color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ⑤ 結果報表 -->
 <div id="page-results" class="page">
   <div class="section-title">結果報表</div>
@@ -522,6 +581,90 @@ function nav(id, el) {
   if(id==='results')  loadRunList();
   if(id==='events')   loadEngineVersions();
   if(id==='export')   loadRunsForExport();
+  if(id==='analyze')  initAnalyze();
+}
+
+// ─── 條件探索器 ────────────────────────────────────────────
+function initAnalyze() {
+  const today = new Date().toISOString().slice(0,10);
+  if(!document.getElementById('az-from').value) document.getElementById('az-from').value = today;
+  if(!document.getElementById('az-to').value)   document.getElementById('az-to').value   = today;
+}
+
+async function runAnalyze() {
+  const from  = document.getElementById('az-from').value;
+  const to    = document.getElementById('az-to').value;
+  const entry = document.getElementById('az-entry').value;
+  if(!from || !to) { alert('請選擇日期範圍'); return; }
+
+  const body = { date_from: from, date_to: to, entry_mode: entry };
+
+  const atkNum = document.getElementById('az-atk-num').value;
+  const atkVol = document.getElementById('az-atk-vol').value;
+  const c31    = document.getElementById('az-c31').value;
+  const vr     = document.getElementById('az-vr').value;
+  const pct    = document.getElementById('az-pct').value;
+
+  if(atkNum) body.min_attack_number  = parseInt(atkNum);
+  if(atkVol) body.min_attack_volume  = parseInt(atkVol);
+  if(c31)    body.min_c31            = parseFloat(c31);
+  if(vr)     body.min_volume_ratio   = parseFloat(vr);
+  if(pct)    body.min_early_high_pct = parseFloat(pct);
+
+  const btn = document.querySelector('#page-analyze .btn-green');
+  btn.disabled = true; btn.textContent = '分析中...';
+
+  try {
+    const res  = await fetch(API + '/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    renderAnalyzeResult(data);
+  } catch(e) {
+    alert('分析失敗：' + e);
+  } finally {
+    btn.disabled = false; btn.textContent = '🔬 分析';
+  }
+}
+
+function renderAnalyzeResult(data) {
+  const el = document.getElementById('az-result');
+  el.style.display = 'block';
+
+  const N    = data.sample_count      || 0;
+  const days = data.trading_day_count || 0;
+  const spd  = data.avg_signals_per_day || 0;
+  document.getElementById('az-meta').innerHTML =
+    `樣本數 <b>${N}</b>　涵蓋交易日 <b>${days}</b> 天　平均每日 <b>${spd}</b> 訊號　`+
+    `進場基準 <b>${data.entry_mode}</b>　截止 <b>${data.cutoff}</b>`;
+
+  const tbody = document.getElementById('az-tbody');
+  tbody.innerHTML = (data.matrix || []).map(r => {
+    const pct  = r.hit_rate_pct || 0;
+    const bar  = Math.round(pct);
+    const col  = pct >= 70 ? 'var(--green)' : pct >= 50 ? 'var(--gold)' : 'var(--red)';
+    const badge = pct >= 70 ? 'bg-green' : pct >= 50 ? 'bg-gold' : 'bg-red';
+    return `<tr>
+      <td><b>${r.tp_label}</b></td>
+      <td>${r.hit_count}</td>
+      <td>${r.sample_count}</td>
+      <td><span class="badge ${badge}">${pct}%</span></td>
+      <td style="min-width:120px">
+        <div style="height:8px;background:var(--s2);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${bar}%;background:${col};border-radius:4px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const f = data.filters_applied || {};
+  const active = Object.entries(f)
+    .filter(([,v]) => v !== null && v !== undefined)
+    .map(([k,v]) => `${k}=${v}`)
+    .join('  ');
+  document.getElementById('az-filters').textContent = active ? '篩選條件：' + active : '（無額外篩選條件）';
 }
 
 // ─── Checkbox sync ────────────────────────────────────────
