@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台股盤中結構回測系統</title>
+<style>
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --s2:#22263a; --s3:#2a2f45;
+  --border:#2e3347; --text:#e2e8f0; --muted:#8892a4;
+  --accent:#4f8ef7; --accent2:#7c5cfc;
+  --green:#22c55e; --red:#ef4444; --gold:#f59e0b; --orange:#f97316;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+.layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{padding:28px;overflow-y:auto;max-width:1400px}
+
+.logo{padding:0 20px 20px;border-bottom:1px solid var(--border)}
+.logo h1{font-size:15px;font-weight:700;color:var(--accent)}
+.logo p{font-size:11px;color:var(--muted);margin-top:3px}
+.ver-badge{display:inline-block;background:rgba(79,142,247,.15);color:var(--accent);border-radius:4px;padding:2px 7px;font-size:10px;margin-top:5px}
+
+.nav-section{padding:10px 20px 4px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;color:var(--muted);font-size:13px;transition:all .15s}
+.nav-item:hover{background:var(--s2);color:var(--text)}
+.nav-item.active{background:rgba(79,142,247,.12);color:var(--accent);border-right:2px solid var(--accent)}
+.nav-item .ic{width:18px;text-align:center;font-size:15px}
+.nav-step{font-size:10px;background:var(--s3);color:var(--muted);border-radius:10px;padding:1px 6px;margin-left:auto}
+
+.page{display:none}.page.active{display:block}
+.section-title{font-size:20px;font-weight:700;margin-bottom:4px}
+.section-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+
+/* Stats */
+.stats-bar{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.stat-label{font-size:11px;color:var(--muted);margin-bottom:5px}
+.stat-value{font-size:22px;font-weight:700;color:var(--accent)}
+.stat-sub{font-size:10px;color:var(--muted);margin-top:2px}
+
+/* Panel */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
+.panel-header{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.panel-title{font-size:14px;font-weight:600}
+.panel-body{padding:18px}
+
+/* Form */
+.fg{display:flex;flex-direction:column;gap:6px}
+.fg label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+input,select{background:var(--s2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:13px;outline:none;transition:border-color .15s;width:100%}
+input:focus,select:focus{border-color:var(--accent)}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.cbg{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.cbi{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;padding:4px 8px;background:var(--s2);border:1px solid var(--border);border-radius:5px;transition:all .15s}
+.cbi:hover{border-color:var(--accent)}
+.cbi input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--accent)}
+.cbi.checked{background:rgba(79,142,247,.1);border-color:rgba(79,142,247,.4)}
+
+/* Buttons */
+.btn{padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--accent);color:white}.btn-primary:hover{background:#3d7ae0}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{background:var(--s2);color:var(--text);border:1px solid var(--border)}.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.btn-green{background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.3)}
+.btn-green:hover{background:rgba(34,197,94,.25)}
+.btn-orange{background:rgba(249,115,22,.15);color:var(--orange);border:1px solid rgba(249,115,22,.3)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center}
+
+/* Status / Inventory bar */
+.status-bar{padding:10px 14px;border-radius:7px;font-size:12px;margin-top:10px;display:none}
+.status-running{background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.3);color:var(--accent);display:block}
+.status-done{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green);display:block}
+.status-error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);display:block}
+.status-info{background:rgba(79,142,247,.07);border:1px solid rgba(79,142,247,.2);color:var(--accent);display:block;font-size:12px;padding:10px 14px;border-radius:7px;margin-bottom:12px}
+
+/* Inventory grid */
+.inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+.inv-item{background:var(--s2);border-radius:6px;padding:10px 12px;text-align:center}
+.inv-num{font-size:20px;font-weight:700}
+.inv-label{font-size:10px;color:var(--muted);margin-top:2px}
+.inv-done{color:var(--green)}.inv-miss{color:var(--gold)}.inv-err{color:var(--red)}
+
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{background:var(--s2);color:var(--muted);font-weight:600;text-align:left;padding:9px 12px;white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:hover td{background:rgba(255,255,255,.02)}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.bg-green{background:rgba(34,197,94,.12);color:var(--green)}
+.bg-red{background:rgba(239,68,68,.12);color:var(--red)}
+.bg-gold{background:rgba(245,158,11,.12);color:var(--gold)}
+.bg-blue{background:rgba(79,142,247,.12);color:var(--accent)}
+.bg-orange{background:rgba(249,115,22,.12);color:var(--orange)}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:18px}
+.tab{padding:9px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Run list */
+.run-item{background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.run-meta{font-size:11px;color:var(--muted);margin-top:3px}
+.run-versions{font-size:10px;color:var(--muted);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap}
+.rv{background:var(--s3);border-radius:3px;padding:1px 5px}
+
+/* Version info box */
+.version-info{background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.2);border-radius:7px;padding:10px 14px;font-size:12px;color:var(--muted);margin-bottom:14px}
+.version-info strong{color:var(--accent)}
+
+.empty{text-align:center;padding:40px;color:var(--muted);font-size:13px}
+.loader{display:inline-block;width:13px;height:13px;border:2px solid rgba(79,142,247,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pos{color:var(--red)}.neg{color:var(--green)}
+hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="logo">
+    <h1>🔬 台股結構回測</h1>
+    <p>Upward Key Attack Research</p>
+    <span class="ver-badge" id="sys-ver">Engine V1</span>
+  </div>
+  <nav>
+    <div class="nav-section">系統</div>
+    <div class="nav-item active" onclick="nav('overview',this)"><span class="ic">📊</span>系統概覽</div>
+
+    <div class="nav-section">資料流程</div>
+    <div class="nav-item" onclick="nav('fetch',this)">
+      <span class="ic">⬇️</span>①&nbsp;抓取資料
+      <span class="nav-step" id="step1-badge">—</span>
+    </div>
+    <div class="nav-item" onclick="nav('events',this)">
+      <span class="ic">⚡</span>②&nbsp;事件辨識
+      <span class="nav-step" id="step2-badge">—</span>
+    </div>
+    <div class="nav-item" onclick="nav('backtest',this)">
+      <span class="ic">🔁</span>③&nbsp;回測 RUN
+    </div>
+
+    <div class="nav-section">分析</div>
+    <div class="nav-item" onclick="nav('results',this)"><span class="ic">📈</span>結果報表</div>
+    <div class="nav-item" onclick="nav('master',this)"><span class="ic">🗃️</span>Event Master</div>
+    <div class="nav-item" onclick="nav('export',this)"><span class="ic">💾</span>匯出 CSV</div>
+  </nav>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<main class="main">
+
+<!-- ① Overview -->
+<div id="page-overview" class="page active">
+  <div class="section-title">系統概覽</div>
+  <div class="section-sub">資料庫現況</div>
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-label">原始資料天數</div><div class="stat-value" id="s-days">—</div><div class="stat-sub">market_data</div></div>
+    <div class="stat-card"><div class="stat-label">候選股票</div><div class="stat-value" id="s-cand">—</div><div class="stat-sub">漲幅+量雙條件</div></div>
+    <div class="stat-card"><div class="stat-label">Key 事件</div><div class="stat-value" id="s-keys">—</div><div class="stat-sub">key_events</div></div>
+    <div class="stat-card"><div class="stat-label">Attack 事件</div><div class="stat-value" id="s-atk">—</div><div class="stat-sub">attack_events</div></div>
+    <div class="stat-card"><div class="stat-label">Outcome 計算</div><div class="stat-value" id="s-out">—</div><div class="stat-sub">outcome_data</div></div>
+    <div class="stat-card"><div class="stat-label">完成回測</div><div class="stat-value" id="s-runs">—</div><div class="stat-sub">backtest_runs</div></div>
+    <div class="stat-card"><div class="stat-label">總交易筆數</div><div class="stat-value" id="s-trades">—</div><div class="stat-sub">backtest_trades</div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span>📋</span><span class="panel-title">核心設計原則</span></div>
+    <div class="panel-body" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+      <div style="background:var(--s2);border-radius:8px;padding:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">🔒 原始資料永久保存</div>
+        <div style="font-size:12px;color:var(--muted)">market_data 只寫不改。研究假說改變，不刪原始 1 分 K。</div>
+      </div>
+      <div style="background:var(--s2);border-radius:8px;padding:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">🗃️ 只補缺少的日期</div>
+        <div style="font-size:12px;color:var(--muted)">抓資料前先查 data_inventory，已有的跳過，不重抓 FinMind。</div>
+      </div>
+      <div style="background:var(--s2);border-radius:8px;padding:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">⚡ Engine 升版才重建事件</div>
+        <div style="font-size:12px;color:var(--muted)">event_runs 記錄版本。同版本已跑過的日期不重算。</div>
+      </div>
+      <div style="background:var(--s2);border-radius:8px;padding:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px">🔁 RUN 完全讀 DB</div>
+        <div style="font-size:12px;color:var(--muted)">每次回測建立 run_id，含完整參數快照與 engine_version。不觸發 FinMind。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ② 抓取資料 -->
+<div id="page-fetch" class="page">
+  <div class="section-title">① 抓取資料</div>
+  <div class="section-sub">系統自動只補抓缺少的日期，已有資料不重抓 FinMind API</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📦</span><span class="panel-title">資料庫現有庫存</span></div>
+    <div class="panel-body">
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="fg"><label>查詢開始</label><input type="date" id="inv-from"></div>
+        <div class="fg"><label>查詢結束</label><input type="date" id="inv-to"></div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="checkInventory()">🔍 查詢庫存</button>
+      <div id="inv-result" style="margin-top:12px;display:none">
+        <div class="inv-grid">
+          <div class="inv-item"><div class="inv-num inv-done" id="inv-done">—</div><div class="inv-label">已完整</div></div>
+          <div class="inv-item"><div class="inv-num inv-miss" id="inv-miss">—</div><div class="inv-label">缺少天數</div></div>
+          <div class="inv-item"><div class="inv-num inv-err"  id="inv-err">—</div><div class="inv-label">失敗</div></div>
+          <div class="inv-item"><div class="inv-num" id="inv-stocks" style="color:var(--accent)">—</div><div class="inv-label">已存股票</div></div>
+        </div>
+        <div id="inv-missing-dates" style="font-size:11px;color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>⬇️</span><span class="panel-title">補抓缺少日期</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>開始日期</label><input type="date" id="fetch-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="fetch-to"></div>
+        <div class="fg"><label>資料收集門檻 (%)</label><input type="number" id="fetch-thr" value="2.5" step="0.5" title="達到此漲幅的股票保存全天1分K（預設2.5%）。回測研究門檻在回測設定頁設定（預設3.5%）。"></div>
+        <!-- 早盤最低量欄位已移除：成交量不作為資料收集條件，永久保存於 daily_context 供分析 -->
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="startFetch(false)">⬇️ 補抓缺少日期</button>
+        <button class="btn btn-orange" onclick="startFetch(true)">🔄 強制全部重抓</button>
+      </div>
+      <div id="fetch-status" class="status-bar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ③ 事件辨識 -->
+<div id="page-events" class="page">
+  <div class="section-title">② 事件辨識</div>
+  <div class="section-sub">系統自動跳過已跑過且版本相符的日期，只處理新增或升版的部分</div>
+
+  <div id="ev-versions" class="version-info">載入中...</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>⚡</span><span class="panel-title">事件辨識設定</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>開始日期</label><input type="date" id="ev-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="ev-to"></div>
+        <div class="fg"><label>Key 版本</label>
+          <select id="ev-kv"><option value="V1">V1（早盤最高價）</option></select>
+        </div>
+        <div class="fg"><label>Attack 版本</label>
+          <select id="ev-av"><option value="V1">V1（Upward Attack）</option></select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="startEvents(false)">⚡ 執行（只跑缺少的）</button>
+        <button class="btn btn-orange" onclick="startEvents(true)">🔄 強制重建所有事件</button>
+      </div>
+      <div id="ev-status" class="status-bar"></div>
+      <hr class="divider">
+      <div style="font-size:12px;color:var(--muted);line-height:1.8">
+        ▸ <strong>Key Detection</strong>：找早盤最高價作為 Key Price，記錄確認時間（無 Look-ahead）<br>
+        ▸ <strong>Attack Engine</strong>：找所有「由 Key 下方向上攻擊」事件，保存 Touch / Upward / Cross / CloseConfirm 四種版本<br>
+        ▸ <strong>Outcome Engine</strong>：逐分鐘計算 MFE/MAE，記錄各 TP/SL 關卡首次觸發時間
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📋</span><span class="panel-title">覆蓋狀況</span></div>
+    <div class="panel-body">
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn btn-secondary btn-sm" onclick="checkCoverage()">🔍 查詢覆蓋狀況</button>
+      </div>
+      <div id="ev-coverage" style="margin-top:12px;display:none">
+        <div class="inv-grid">
+          <div class="inv-item"><div class="inv-num inv-done" id="cov-data">—</div><div class="inv-label">有資料天數</div></div>
+          <div class="inv-item"><div class="inv-num inv-done" id="cov-ev">—</div><div class="inv-label">已辨識事件</div></div>
+          <div class="inv-item"><div class="inv-num" id="cov-keys" style="color:var(--accent)">—</div><div class="inv-label">Key 總數</div></div>
+          <div class="inv-item"><div class="inv-num" id="cov-atk" style="color:var(--accent)">—</div><div class="inv-label">Attack 總數</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ④ 回測 RUN -->
+<div id="page-backtest" class="page">
+  <div class="section-title">③ 回測 RUN</div>
+  <div class="section-sub">完全讀取 PostgreSQL 資料，不觸發 FinMind。每次 RUN 建立獨立 run_id 與完整參數快照。</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📅</span><span class="panel-title">基本設定</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>回測名稱</label><input type="text" id="bt-name" placeholder="e.g. 2024Q1 初測"></div>
+        <div class="fg"><label>開始日期</label><input type="date" id="bt-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="bt-to"></div>
+        <div class="fg"><label>Attack 版本</label>
+          <select id="bt-av"><option value="V1">V1</option></select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>🎯</span><span class="panel-title">策略矩陣（全選 = 全部組合）</span></div>
+    <div class="panel-body">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px">
+
+        <div class="fg"><label>Attack 定義</label>
+          <div class="cbg" id="cb-atk-def">
+            <label class="cbi checked"><input type="checkbox" name="atk_def" value="touch" checked onchange="syncCbi(this)"> Touch</label>
+            <label class="cbi checked"><input type="checkbox" name="atk_def" value="upward" checked onchange="syncCbi(this)"> Upward ★</label>
+            <label class="cbi checked"><input type="checkbox" name="atk_def" value="cross" checked onchange="syncCbi(this)"> Cross</label>
+            <label class="cbi checked"><input type="checkbox" name="atk_def" value="close_confirm" checked onchange="syncCbi(this)"> Close Confirm</label>
+          </div>
+        </div>
+
+        <div class="fg"><label>Attack 次數</label>
+          <div class="cbg">
+            <label class="cbi checked"><input type="checkbox" name="atk_num" value="2" checked onchange="syncCbi(this)"> 第 2 次</label>
+            <label class="cbi checked"><input type="checkbox" name="atk_num" value="3" checked onchange="syncCbi(this)"> 第 3 次</label>
+            <label class="cbi checked"><input type="checkbox" name="atk_num" value="4" checked onchange="syncCbi(this)"> 第 4 次</label>
+          </div>
+        </div>
+
+        <div class="fg"><label>進場方式</label>
+          <div class="cbg">
+<label class="cbi checked"><input type="checkbox" name="entry" value="bar_close" checked onchange="syncCbi(this)"> 當分鐘 Close</label>
+            <label class="cbi checked"><input type="checkbox" name="entry" value="next_open" checked onchange="syncCbi(this)"> 下一根 Open</label>
+            <label class="cbi checked"><input type="checkbox" name="entry" value="next_close" checked onchange="syncCbi(this)"> 下一根 Close</label>
+          </div>
+        </div>
+
+        <div class="fg"><label>觀察截止時間</label>
+          <div class="cbg">
+            <label class="cbi checked"><input type="checkbox" name="exit_time" value="0959" checked onchange="syncCbi(this)"> 09:59</label>
+            <label class="cbi checked"><input type="checkbox" name="exit_time" value="1030" checked onchange="syncCbi(this)"> 10:30</label>
+            <label class="cbi checked"><input type="checkbox" name="exit_time" value="1130" checked onchange="syncCbi(this)"> 11:30</label>
+            <label class="cbi checked"><input type="checkbox" name="exit_time" value="close" checked onchange="syncCbi(this)"> 收盤</label>
+          </div>
+        </div>
+
+        <div class="fg"><label>停利 TP (%)</label>
+          <div class="cbg">
+            <label class="cbi checked"><input type="checkbox" name="tp" value="0.5" checked onchange="syncCbi(this)"> +0.5%</label>
+            <label class="cbi checked"><input type="checkbox" name="tp" value="0.75" checked onchange="syncCbi(this)"> +0.75%</label>
+            <label class="cbi checked"><input type="checkbox" name="tp" value="1.0" checked onchange="syncCbi(this)"> +1.0%</label>
+            <label class="cbi checked"><input type="checkbox" name="tp" value="1.25" checked onchange="syncCbi(this)"> +1.25%</label>
+            <label class="cbi checked"><input type="checkbox" name="tp" value="1.5" checked onchange="syncCbi(this)"> +1.5%</label>
+            <label class="cbi checked"><input type="checkbox" name="tp" value="2.0" checked onchange="syncCbi(this)"> +2.0%</label>
+          </div>
+        </div>
+
+        <div class="fg"><label>停損 SL (%)</label>
+          <div class="cbg">
+            <label class="cbi checked"><input type="checkbox" name="sl" value="null" checked onchange="syncCbi(this)"> 無停損</label>
+            <label class="cbi checked"><input type="checkbox" name="sl" value="0.25" checked onchange="syncCbi(this)"> -0.25%</label>
+            <label class="cbi checked"><input type="checkbox" name="sl" value="0.5" checked onchange="syncCbi(this)"> -0.5%</label>
+            <label class="cbi checked"><input type="checkbox" name="sl" value="0.75" checked onchange="syncCbi(this)"> -0.75%</label>
+            <label class="cbi checked"><input type="checkbox" name="sl" value="1.0" checked onchange="syncCbi(this)"> -1.0%</label>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+      <div class="form-grid">
+        <div class="fg">
+          <label>量比門檻（volume_ratio_at_0910）</label>
+          <select id="bt-min-vr">
+            <option value="">不限（全部樣本）</option>
+            <option value="1.5">&ge; 1.5x</option>
+            <option value="2.0">&ge; 2.0x</option>
+            <option value="2.5">&ge; 2.5x</option>
+            <option value="3.0">&ge; 3.0x</option>
+            <option value="3.5">&ge; 3.5x</option>
+            <option value="4.0">&ge; 4.0x</option>
+            <option value="4.5">&ge; 4.5x</option>
+            <option value="5.0">&ge; 5.0x</option>
+          </select>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            量比 = 09:00~09:10 累積量 ÷ 前5日均量（與即時快照同套算法）
+          </div>
+        </div>
+      </div>
+
+      <div id="combo-count" style="font-size:12px;color:var(--muted);margin-top:12px"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="startBacktest()" id="btn-run">🔁 RUN 回測</button>
+        <button class="btn btn-secondary" onclick="toggleAll(true)">全選</button>
+        <button class="btn btn-secondary" onclick="toggleAll(false)">全不選</button>
+      </div>
+      <div id="bt-status" class="status-bar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑤ 結果報表 -->
+<div id="page-results" class="page">
+  <div class="section-title">結果報表</div>
+  <div class="section-sub">選擇回測 Run 查看策略組合統計</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📋</span><span class="panel-title">回測 Run 清單</span></div>
+    <div class="panel-body">
+      <div id="run-list"><div class="empty">載入中...</div></div>
+    </div>
+  </div>
+
+  <div id="summary-panel" class="panel" style="display:none">
+    <div class="panel-header">
+      <span>📈</span>
+      <span class="panel-title" id="summary-title">—</span>
+    </div>
+    <div class="panel-body">
+      <div class="tabs">
+        <div class="tab active" onclick="sortSummary('hit_rate_pct',this)">達成率</div>
+        <div class="tab" onclick="sortSummary('sample_count',this)">樣本數</div>
+        <div class="tab" onclick="sortSummary('trading_day_count',this)">涵蓋天數</div>
+        <div class="tab" onclick="sortSummary('avg_vr_0910',this)">平均量比</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Attack定義</th><th>次數</th><th>進場</th><th>TP</th><th>SL</th><th>截止</th>
+            <th>樣本數</th><th>交易日數</th><th>日均訊號</th><th>達成率</th>
+            <th>Avg MFE</th><th>Avg MAE</th><th>量比@0910</th><th>Avg C31</th>
+          </tr></thead>
+          <tbody id="summary-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑥ Event Master -->
+<div id="page-master" class="page">
+  <div class="section-title">Event Master 查詢</div>
+  <div class="section-sub">原始 Attack 事件瀏覽（保存所有連續數值，不截斷）</div>
+  <div class="panel">
+    <div class="panel-header"><span>🔍</span><span class="panel-title">篩選</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>開始日期</label><input type="date" id="em-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="em-to"></div>
+        <div class="fg"><label>Attack 次數</label>
+          <select id="em-atk"><option value="">全部</option><option value="2">第 2 次</option><option value="3">第 3 次</option><option value="4">第 4 次</option></select>
+        </div>
+        <div class="fg"><label>最低量比</label><input type="number" id="em-vr" placeholder="e.g. 1.8" step="0.1"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="loadEM()">🔍 查詢</button></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span>🗃️</span><span class="panel-title">Event Master（最多 500 筆）</span></div>
+    <div class="panel-body">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>日期</th><th>股票</th><th>量比</th><th>Key</th>
+            <th>A#</th><th>攻擊量</th><th>C31</th>
+            <th>Touch</th><th>Upward</th><th>Cross</th><th>Close↑</th>
+            <th>MFE 5m</th><th>MAE 5m</th><th>MFE 0959</th><th>MAE 0959</th>
+          </tr></thead>
+          <tbody id="em-body"><tr><td colspan="15" class="empty">點查詢載入</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ⑦ 匯出 -->
+<div id="page-export" class="page">
+  <div class="section-title">匯出 CSV</div>
+  <div class="section-sub">三份核心輸出檔案，UTF-8 with BOM（Excel 直接開啟不亂碼）</div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📁</span><span class="panel-title">EVENT_MASTER.csv（最重要）</span></div>
+    <div class="panel-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">每個 Attack 事件一列，含所有連續數值：量比、C值、MFE/MAE、TP/SL首次觸發時間等。拿這份做第二階段分析。</p>
+      <div class="form-grid">
+        <div class="fg"><label>開始日期</label><input type="date" id="ex-em-from"></div>
+        <div class="fg"><label>結束日期</label><input type="date" id="ex-em-to"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-green" onclick="dl('em')">💾 EVENT_MASTER.csv</button></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>📁</span><span class="panel-title">BACKTEST_TRADES + SUMMARY</span></div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div class="fg"><label>選擇 Run</label><select id="ex-run-id"><option value="">— 載入中 —</option></select></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="dl('trades')">💾 BACKTEST_TRADES.csv</button>
+        <button class="btn btn-green" onclick="dl('summary')">💾 BACKTEST_SUMMARY.csv</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+// ─── Config ──────────────────────────────────────────────
+const API = window.API_BASE || '';
+
+// ─── Navigation ──────────────────────────────────────────
+function nav(id, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  el.classList.add('active');
+  if(id==='overview') loadOverview();
+  if(id==='results')  loadRunList();
+  if(id==='events')   loadEngineVersions();
+  if(id==='export')   loadRunsForExport();
+}
+
+// ─── Checkbox sync ────────────────────────────────────────
+function syncCbi(el) {
+  el.closest('.cbi').classList.toggle('checked', el.checked);
+  updateComboCount();
+}
+function toggleAll(v) {
+  document.querySelectorAll('.cbg input[type=checkbox]').forEach(c=>{c.checked=v;syncCbi(c)});
+}
+function getChecked(name){ return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e=>e.value) }
+
+function updateComboCount() {
+  const d=getChecked('atk_def'), n=getChecked('atk_num'), e=getChecked('entry'),
+        tp=getChecked('tp'), sl=getChecked('sl'), t=getChecked('exit_time');
+  const total = d.length*n.length*e.length*tp.length*sl.length*t.length;
+  const el = document.getElementById('combo-count');
+  if(el) el.textContent = `目前選擇：${total.toLocaleString()} 種策略組合`;
+}
+updateComboCount();
+
+// ─── Task polling ─────────────────────────────────────────
+function pollTask(taskId, statusEl, onDone) {
+  const t = setInterval(async ()=>{
+    try{
+      const r = await fetch(API+'/api/task/'+taskId);
+      const d = await r.json();
+      if(d.status==='running'){
+        setStatus(statusEl,'running','⏳ 執行中... '+JSON.stringify(d).slice(0,80));
+      } else if(d.status==='done'){
+        clearInterval(t);
+        setStatus(statusEl,'done','✅ 完成 | '+JSON.stringify(d));
+        if(onDone) onDone(d);
+        loadOverview();
+      } else if(d.status==='error'){
+        clearInterval(t);
+        setStatus(statusEl,'error','❌ 錯誤：'+d.message);
+      }
+    }catch(e){clearInterval(t);setStatus(statusEl,'error','連線失敗');}
+  }, 2500);
+}
+function setStatus(el,type,msg){el.className='status-bar status-'+type;el.textContent=msg}
+
+// ─── Overview ────────────────────────────────────────────
+async function loadOverview(){
+  try{
+    const d = await fetch(API+'/api/stats/overview').then(r=>r.json());
+    document.getElementById('s-days').textContent    = d.data_days   || 0;
+    document.getElementById('s-cand').textContent    = d.candidates  || 0;
+    document.getElementById('s-keys').textContent    = d.keys        || 0;
+    document.getElementById('s-atk').textContent     = d.attacks     || 0;
+    document.getElementById('s-out').textContent     = d.outcomes    || 0;
+    document.getElementById('s-runs').textContent    = d.completed_runs || 0;
+    document.getElementById('s-trades').textContent  = (d.total_trades||0).toLocaleString();
+
+    // Sidebar badges
+    document.getElementById('step1-badge').textContent = (d.data_days||0)+'天';
+    document.getElementById('step2-badge').textContent = (d.attacks||0)+' atk';
+
+    // Engine version
+    const v = await fetch(API+'/api/engine/versions').then(r=>r.json());
+    document.getElementById('sys-ver').textContent = 'Engine '+v.system_engine_version;
+  }catch(e){ console.error(e) }
+}
+loadOverview();
+
+// ─── Inventory ────────────────────────────────────────────
+async function checkInventory(){
+  const from = document.getElementById('inv-from').value;
+  const to   = document.getElementById('inv-to').value;
+  if(!from||!to) return alert('請填寫日期');
+  const d = await fetch(API+`/api/inventory?date_from=${from}&date_to=${to}`).then(r=>r.json());
+  document.getElementById('inv-result').style.display='block';
+  document.getElementById('inv-done').textContent   = d.done;
+  document.getElementById('inv-miss').textContent   = d.missing_count;
+  document.getElementById('inv-err').textContent    = d.error;
+  document.getElementById('inv-stocks').textContent = (d.total_stocks||0).toLocaleString();
+  const md = document.getElementById('inv-missing-dates');
+  if(d.missing_count > 0)
+    md.textContent = '缺少日期（前30）：' + d.missing_dates.join(', ');
+  else
+    md.textContent = '✅ 指定範圍資料完整';
+}
+
+// ─── Fetch ────────────────────────────────────────────────
+async function startFetch(force){
+  const body = {
+    date_from:            document.getElementById('fetch-from').value,
+    date_to:              document.getElementById('fetch-to').value,
+    collection_threshold: parseFloat(document.getElementById('fetch-thr').value)/100,
+    // min_early_volume 已移除：成交量不作為資料收集條件
+    force_refetch:        force,
+  };
+  if(!body.date_from||!body.date_to) return alert('請填寫日期');
+  const se = document.getElementById('fetch-status');
+  setStatus(se,'running','⏳ 送出請求...');
+  const d = await fetch(API+'/api/fetch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  if(!d.task_id){ setStatus(se,'done',d.message); return; }
+  pollTask(d.task_id, se);
+}
+
+// ─── Engine Versions ──────────────────────────────────────
+async function loadEngineVersions(){
+  try{
+    const d = await fetch(API+'/api/engine/versions').then(r=>r.json());
+    const c = d.current || {};
+    document.getElementById('ev-versions').innerHTML =
+      `目前 Engine 版本：<strong>Key ${c.key||'V1'}</strong> / <strong>Attack ${c.attack||'V1'}</strong> / <strong>Outcome ${c.outcome||'V1'}</strong>
+      &nbsp;—&nbsp;版本不變時，已跑過的日期自動跳過；升版後才重跑。`;
+  }catch(e){}
+}
+
+async function startEvents(force){
+  const body = {
+    date_from:       document.getElementById('ev-from').value,
+    date_to:         document.getElementById('ev-to').value,
+    key_version:     document.getElementById('ev-kv').value,
+    attack_version:  document.getElementById('ev-av').value,
+    outcome_version: 'V1',
+    force_rebuild:   force,
+  };
+  if(!body.date_from||!body.date_to) return alert('請填寫日期');
+  const se = document.getElementById('ev-status');
+  setStatus(se,'running','⏳ Event Engine 啟動中...');
+  const d = await fetch(API+'/api/events/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  pollTask(d.task_id, se);
+}
+
+async function checkCoverage(){
+  const from = document.getElementById('ev-from').value;
+  const to   = document.getElementById('ev-to').value;
+  if(!from||!to) return alert('請填寫日期');
+  const d = await fetch(API+`/api/events/coverage?date_from=${from}&date_to=${to}`).then(r=>r.json());
+  document.getElementById('ev-coverage').style.display='block';
+  document.getElementById('cov-data').textContent = d.data_days  || 0;
+  document.getElementById('cov-ev').textContent   = d.event_days || 0;
+  document.getElementById('cov-keys').textContent = d.total_keys || 0;
+  document.getElementById('cov-atk').textContent  = d.total_attacks || 0;
+}
+
+// ─── Backtest ────────────────────────────────────────────
+async function startBacktest(){
+  const rawVr = document.getElementById('bt-min-vr').value;
+  const body = {
+    run_name:           document.getElementById('bt-name').value,
+    date_from:          document.getElementById('bt-from').value,
+    date_to:            document.getElementById('bt-to').value,
+    attack_version:     document.getElementById('bt-av').value,
+    attack_definitions: getChecked('atk_def'),
+    attack_numbers:     getChecked('atk_num').map(Number),
+    entry_modes:        getChecked('entry').filter(m => m !== 'trigger'),
+    tp_levels:          getChecked('tp').map(Number),
+    sl_levels:          getChecked('sl').map(v=>v==='null'?null:parseFloat(v)),
+    exit_times:         getChecked('exit_time'),
+    min_volume_ratio:   rawVr ? parseFloat(rawVr) : null,
+  };
+  if(!body.date_from||!body.date_to) return alert('請填寫日期');
+  const btn = document.getElementById('btn-run');
+  const se  = document.getElementById('bt-status');
+  btn.disabled=true;
+  setStatus(se,'running','⏳ 回測啟動...');
+  const d = await fetch(API+'/api/backtest/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  pollTask(d.task_id, se, ()=>{ btn.disabled=false; });
+}
+
+// ─── Results ─────────────────────────────────────────────
+let _summaryData = [];
+async function loadRunList(){
+  const runs = await fetch(API+'/api/backtest/runs').then(r=>r.json()).catch(()=>[]);
+  const el = document.getElementById('run-list');
+  if(!runs.length){ el.innerHTML='<div class="empty">尚無回測記錄</div>'; return; }
+  el.innerHTML = runs.map(r=>`
+    <div class="run-item">
+      <div>
+        <div style="font-size:13px;font-weight:600">${r.run_name||'Run #'+r.run_id}</div>
+        <div class="run-meta">${r.date_from} ~ ${r.date_to} | ${(r.total_trades||0).toLocaleString()} 筆 | ${(r.created_at||'').slice(0,16)}</div>
+        <div class="run-versions">
+          <span class="rv">Engine ${r.engine_version}</span>
+          <span class="rv">Key ${r.key_version}</span>
+          <span class="rv">Atk ${r.attack_version}</span>
+          <span class="rv">Out ${r.outcome_version}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="badge ${r.status==='done'?'bg-green':r.status==='error'?'bg-red':'bg-blue'}">${r.status}</span>
+        ${r.status==='done'?`<button class="btn btn-sm btn-secondary" onclick="loadSummary(${r.run_id},'${(r.run_name||'Run #'+r.run_id).replace(/'/g,"")}')">查看</button>`:''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadSummary(runId, name){
+  _summaryData = await fetch(API+`/api/backtest/${runId}/summary`).then(r=>r.json());
+  document.getElementById('summary-panel').style.display='block';
+  document.getElementById('summary-title').textContent = name+' — 策略摘要';
+  renderSummary(_summaryData);
+}
+
+function sortSummary(field, el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  renderSummary([..._summaryData].sort((a,b)=>(b[field]||0)-(a[field]||0)));
+}
+
+function renderSummary(data){
+  const tbody = document.getElementById('summary-body');
+  if(!data.length){ tbody.innerHTML='<tr><td colspan="14" class="empty">無資料</td></tr>'; return; }
+  const f2  = v => v!=null?parseFloat(v).toFixed(2):'—';
+  const pct0 = v => v!=null?parseFloat(v).toFixed(1)+'%':'—';
+  tbody.innerHTML = data.slice(0,300).map(r=>{
+    const hr  = parseFloat(r.hit_rate_pct||0);
+    const n   = parseInt(r.sample_count||0);
+    const days= parseInt(r.trading_day_count||0);
+    return `<tr>
+      <td><span class="badge bg-blue">${r.attack_definition}</span></td>
+      <td>A${r.attack_number}</td>
+      <td style="font-size:11px">${r.entry_mode}</td>
+      <td>${r.tp_pct!=null?'+'+r.tp_pct+'%':'—'}</td>
+      <td>${r.sl_pct!=null?'-'+r.sl_pct+'%':'無'}</td>
+      <td>${r.exit_time_limit}</td>
+      <td>${n}</td>
+      <td>${days}</td>
+      <td>${n&&days?(n/days).toFixed(1):'—'}</td>
+      <td><span class="badge ${hr>=60?'bg-green':hr>=40?'bg-gold':'bg-red'}">${hr}%</span></td>
+      <td class="pos">${pct0(r.avg_mfe)}</td>
+      <td class="neg">${pct0(r.avg_mae)}</td>
+      <td>${f2(r.avg_vr_0910)}</td>
+      <td>${f2(r.avg_c31)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Event Master ─────────────────────────────────────────
+async function loadEM(){
+  const from = document.getElementById('em-from').value;
+  const to   = document.getElementById('em-to').value;
+  const atk  = document.getElementById('em-atk').value;
+  const vr   = document.getElementById('em-vr').value;
+  if(!from||!to) return alert('請填寫日期');
+  let url=API+`/api/events/master?date_from=${from}&date_to=${to}`;
+  if(atk) url+=`&attack_number=${atk}`;
+  if(vr)  url+=`&min_volume_ratio=${vr}`;
+  const data = await fetch(url).then(r=>r.json());
+  const tbody = document.getElementById('em-body');
+  if(!data.length){ tbody.innerHTML='<tr><td colspan="15" class="empty">無資料</td></tr>'; return; }
+  const pct = v => v!=null?(parseFloat(v)*100).toFixed(2)+'%':'—';
+  tbody.innerHTML = data.map(d=>`<tr>
+    <td>${d.date}</td><td><b>${d.stock_id}</b></td>
+    <td>${parseFloat(d.volume_ratio||0).toFixed(2)}</td>
+    <td>${d.key_price}</td><td>A${d.attack_number}</td>
+    <td>${(d.attack_volume||0).toLocaleString()}</td>
+    <td>${d.c31!=null?parseFloat(d.c31).toFixed(2):'—'}</td>
+    <td>${d.is_touch?'✓':'·'}</td><td>${d.is_upward?'<b>✓</b>':'·'}</td>
+    <td>${d.is_cross?'✓':'·'}</td><td>${d.is_close_above?'✓':'·'}</td>
+    <td class="pos">${pct(d.mfe_5m)}</td><td class="neg">${pct(d.mae_5m)}</td>
+    <td class="pos">${pct(d.mfe_0959)}</td><td class="neg">${pct(d.mae_0959)}</td>
+  </tr>`).join('');
+}
+
+// ─── Export ──────────────────────────────────────────────
+async function loadRunsForExport(){
+  const runs = await fetch(API+'/api/backtest/runs').then(r=>r.json()).catch(()=>[]);
+  const sel = document.getElementById('ex-run-id');
+  const done = runs.filter(r=>r.status==='done');
+  sel.innerHTML = done.length
+    ? done.map(r=>`<option value="${r.run_id}">${r.run_name||'Run #'+r.run_id} (${r.date_from}~${r.date_to}) engine:${r.engine_version}</option>`).join('')
+    : '<option value="">無已完成回測</option>';
+}
+function dl(type){
+  let url;
+  if(type==='em'){
+    const f=document.getElementById('ex-em-from').value, t=document.getElementById('ex-em-to').value;
+    if(!f||!t) return alert('請填寫日期');
+    url=API+`/api/export/event_master?date_from=${f}&date_to=${t}`;
+  } else {
+    const rid=document.getElementById('ex-run-id').value;
+    if(!rid) return alert('請選擇 Run');
+    url=API+(type==='trades'?`/api/export/backtest_trades/${rid}`:`/api/export/backtest_summary/${rid}`);
+  }
+  window.open(url,'_blank');
+}
+
+// ─── Date init ───────────────────────────────────────────
+(()=>{
+  const today = new Date().toISOString().slice(0,10);
+  const m1ago = new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const froms = ['inv-from','fetch-from','ev-from','bt-from','em-from','ex-em-from'];
+  const tos   = ['inv-to',  'fetch-to',  'ev-to',  'bt-to',  'em-to',  'ex-em-to'];
+  froms.forEach(id=>{ const e=document.getElementById(id); if(e) e.value=m1ago; });
+  tos.forEach(id=>{   const e=document.getElementById(id); if(e) e.value=today; });
+})();
+</script>
+</body>
+</html>

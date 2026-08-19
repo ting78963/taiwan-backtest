@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: taiwan-backtest-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taiwan-backtest-db
+          property: connectionString
+      - key: FINMIND_TOKEN
+        sync: false  # 手動填入
+
+databases:
+  - name: taiwan-backtest-db
+    plan: free
+    databaseName: taiwan_backtest
