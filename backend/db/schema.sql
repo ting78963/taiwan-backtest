@@ -461,7 +461,7 @@ ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS early_high_pct    NUMERIC(8
 
 -- data_inventory：改名 price_threshold → collection_threshold
 ALTER TABLE data_inventory ADD COLUMN IF NOT EXISTS collection_threshold NUMERIC(6,4);
-UPDATE data_inventory SET collection_threshold = price_threshold WHERE collection_threshold IS NULL;
+-- UPDATE data_inventory SET collection_threshold = price_threshold WHERE collection_threshold IS NULL; -- 舊欄位已不存在，略過
 
 -- outcome_data 新增 TP/SL 擴充欄位（idempotent）
 -- TP targets
