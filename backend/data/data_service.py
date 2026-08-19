@@ -27,7 +27,7 @@ from sqlalchemy import text
 
 from .finmind_fetcher import fetch_1min_kbar, fetch_batch_daily_context
 from .inventory import mark_date_done, mark_date_error, get_missing_dates
-from ..events.volume_ratio import compute_volume_ratio
+from events.volume_ratio import compute_volume_ratio
 
 logger = logging.getLogger(__name__)
 
