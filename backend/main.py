@@ -127,6 +127,26 @@ class BacktestRequest(BaseModel):
 
 
 # ── Health ───────────────────────────────────────────────────────────
+@app.get("/debug/finmind_cols")
+def debug_finmind_cols(target_date: str = "2026-08-18", db=Depends(get_db)):
+    """臨時 debug：查看 FinMind TaiwanStockPrice 的實際欄位名稱。"""
+    from data.finmind_fetcher import _request, FINMIND_TOKEN
+    from datetime import date as date_cls, timedelta
+    import requests as req_mod
+    d = date_cls.fromisoformat(target_date)
+    start = (d - timedelta(days=3)).strftime("%Y-%m-%d")
+    end   = d.strftime("%Y-%m-%d")
+    df = _request("TaiwanStockPrice", {"start_date": start, "end_date": end})
+    if df is None or df.empty:
+        return {"error": "empty", "columns": []}
+    # 只回傳第一筆資料和欄位名稱
+    return {
+        "columns": list(df.columns),
+        "sample": df.head(2).to_dict(orient="records"),
+        "shape": list(df.shape),
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
