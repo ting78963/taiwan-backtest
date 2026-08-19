@@ -118,11 +118,13 @@ def fetch_market_daily(target_date: date, lookback_days: int = 14) -> Optional[p
 
     # 漲幅：(close - yesterday_close) / yesterday_close * 100
     # TaiwanStockPrice 有 Change 欄位（漲跌金額），change_pct = Change / (close - Change) * 100
-    if "Change" in df.columns and "close" in df.columns:
+    # FinMind TaiwanStockPrice 漲跌欄位是 spread（漲跌金額）
+    spread_col = next((c for c in ["spread", "Change", "change"] if c in df.columns), None)
+    if spread_col and "close" in df.columns:
         df["close"]  = pd.to_numeric(df["close"],  errors="coerce")
-        df["Change"] = pd.to_numeric(df["Change"], errors="coerce")
-        prev_close   = df["close"] - df["Change"]
-        df["change_pct"] = (df["Change"] / prev_close.replace(0, float("nan"))) * 100
+        df[spread_col] = pd.to_numeric(df[spread_col], errors="coerce")
+        prev_close   = df["close"] - df[spread_col]
+        df["change_pct"] = (df[spread_col] / prev_close.replace(0, float("nan"))) * 100
     else:
         df["change_pct"] = 0.0
 
