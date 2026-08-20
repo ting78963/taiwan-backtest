@@ -13,6 +13,7 @@ from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 from db.database import get_db, init_db, SessionLocal, get_current_engine_versions
 from data.data_service import fetch_missing_dates
@@ -155,7 +156,6 @@ def health():
 # ── Stats overview ───────────────────────────────────────────────────
 @app.get("/api/stats/overview")
 def stats_overview(db=Depends(get_db)):
-    from sqlalchemy import text
     row = db.execute(text("""
         SELECT
             (SELECT COUNT(DISTINCT date) FROM market_data)                        AS data_days,
@@ -296,7 +296,6 @@ def get_task(task_id: str):
 # ── Backtest runs list ────────────────────────────────────────────────
 @app.get("/api/backtest/runs")
 def list_runs(db=Depends(get_db)):
-    from sqlalchemy import text
     rows = db.execute(text("""
         SELECT run_id, run_name, date_from, date_to, status,
                total_trades, engine_version, key_version, attack_version, outcome_version,
@@ -378,7 +377,6 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
     entry_mode 必須指定，避免同一 attack 三列重複計算。
     TP 達成：first_plusXXX_time IS NOT NULL AND <= '09:59:00'
     """
-    from sqlalchemy import text
     TP_COLS = [
         ("050", "+0.5%"), ("075", "+0.75%"), ("100", "+1.0%"),
         ("125", "+1.25%"), ("150", "+1.5%"), ("200", "+2.0%"),
