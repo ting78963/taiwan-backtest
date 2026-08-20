@@ -205,6 +205,16 @@ def fetch_candidates(
     if df.empty:
         return pd.DataFrame()
 
+    # 加入昨收：prev_close = close - spread
+    if "close" in df.columns:
+        df["close"]  = pd.to_numeric(df["close"],  errors="coerce")
+    spread_col = next((c for c in ["spread","Change","change"] if c in df.columns), None)
+    if spread_col:
+        df[spread_col] = pd.to_numeric(df[spread_col], errors="coerce").fillna(0)
+        df["prev_close"] = df["close"] - df[spread_col]
+    else:
+        df["prev_close"] = df["close"]
+
     mask = (
         (df["change_pct"]   >= min_change_pct) &
         (df["volume_zhang"] >= min_volume_zhang)
