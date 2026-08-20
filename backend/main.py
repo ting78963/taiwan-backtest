@@ -346,6 +346,28 @@ def get_event_master(
     return df.head(500).to_dict(orient="records")
 
 
+# ── 清除指定日期資料 ──────────────────────────────────────────────────────
+@app.delete("/api/clear_date")
+def clear_date(target_date: date, db=Depends(get_db)):
+    """清除指定日期的所有資料，讓該日期可以重新抓取。"""
+    try:
+        db.execute(text("DELETE FROM event_runs WHERE date = :d"), {"d": target_date})
+        db.execute(text("""
+            DELETE FROM outcome_data WHERE attack_id IN
+            (SELECT attack_id FROM attack_events WHERE date = :d)
+        """), {"d": target_date})
+        db.execute(text("DELETE FROM attack_events WHERE date = :d"), {"d": target_date})
+        db.execute(text("DELETE FROM key_events WHERE date = :d"),    {"d": target_date})
+        db.execute(text("DELETE FROM daily_context WHERE date = :d"), {"d": target_date})
+        db.execute(text("DELETE FROM market_data WHERE date = :d"),   {"d": target_date})
+        db.execute(text("DELETE FROM data_inventory WHERE date = :d"),{"d": target_date})
+        db.commit()
+        return {"status": "ok", "cleared": str(target_date)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── 條件探索器 ────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest, db=Depends(get_db)):

@@ -230,6 +230,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div class="btn-row">
         <button class="btn btn-primary" onclick="startFetch(false)">⬇️ 補抓缺少日期</button>
         <button class="btn btn-orange" onclick="startFetch(true)">🔄 強制全部重抓</button>
+        <button class="btn" style="background:var(--red);color:#fff" onclick="clearDate()">🗑️ 清除此日期資料</button>
       </div>
       <div id="fetch-status" class="status-bar"></div>
     </div>
@@ -584,7 +585,21 @@ function nav(id, el) {
   if(id==='analyze')  initAnalyze();
 }
 
-// ─── 條件探索器 ────────────────────────────────────────────
+// ─── 清除日期 ────────────────────────────────────────────────
+async function clearDate() {
+  const d = document.getElementById('fetch-from').value;
+  if (!d) { alert('請先設定開始日期'); return; }
+  if (!confirm(`確定清除 ${d} 的所有資料？此操作不可還原。`)) return;
+  try {
+    const res = await fetch(API + '/api/clear_date?target_date=' + d, { method: 'DELETE' });
+    const data = await res.json();
+    alert('✅ 已清除 ' + data.cleared);
+  } catch(e) {
+    alert('清除失敗：' + e);
+  }
+}
+
+// ─── 條件探索器 ────────────────────────────────────────────────
 function initAnalyze() {
   const today = new Date().toISOString().slice(0,10);
   if(!document.getElementById('az-from').value) document.getElementById('az-from').value = today;
