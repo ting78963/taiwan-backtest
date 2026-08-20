@@ -112,7 +112,7 @@ def fetch_market_daily_screen(target_date: date) -> Optional[pd.DataFrame]:
         df["change_pct"] = 0.0
 
     logger.info(f"[FinMind] 全市場日線 {target_date}: {len(df)} 筆")
-    return df[["stock_id", "close", "volume_zhang", "change_pct"]].copy()
+    return df[["stock_id", "close", "volume_zhang", "change_pct", "spread"]].copy()
 
 
 def fetch_prev_context(stock_id: str, target_date: date) -> Optional[dict]:
