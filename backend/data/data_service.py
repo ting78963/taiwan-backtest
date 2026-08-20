@@ -4,14 +4,13 @@ Data Service
 兩階段抓取流程：
 
 Stage 1（1 次 request）：
-  全市場日線 → 篩出收盤漲幅 >= 4% AND 總成交量 >= 4000 張的 candidates
-  同時取得昨收（prev_close）和前5日量（量比分母）
+  全市場當日日線 → 篩出漲幅 >= 4% AND 成交量 >= 4000 張的 candidates
 
-Stage 2（candidates × 1 次）：
-  逐支 candidate 抓當日 1 分 K
+Stage 2（candidates × 2 次）：
+  逐支取昨收 + 前5日量（TaiwanStockPrice，傳 data_id）
+  逐支取 1 分 K（TaiwanStockKBar，傳 data_id）
 
-Request 數：1 + candidates 數量（約 30~100）= 約 31~101 次
-原本：全市場逐支（3,600 次）→ 減少 97%
+Request 數：1 + candidates × 2（約 61~201 次）
 """
 
 import logging
@@ -20,7 +19,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from .finmind_fetcher import fetch_candidates, fetch_1min_kbar
+from .finmind_fetcher import fetch_candidates, fetch_prev_context, fetch_1min_kbar
 from .inventory import mark_date_done, mark_date_error, get_missing_dates
 from events.volume_ratio import compute_volume_ratio
 
@@ -29,8 +28,8 @@ logger = logging.getLogger(__name__)
 EARLY_START = "09:00:00"
 EARLY_END   = "09:10:00"
 
-DEFAULT_PRICE_THRESHOLD  = 0.04   # 4%（收盤漲幅門檻）
-DEFAULT_MIN_VOLUME_ZHANG = 4000   # 4000 張（收盤總成交量門檻）
+DEFAULT_PRICE_THRESHOLD  = 0.04
+DEFAULT_MIN_VOLUME_ZHANG = 4000
 
 
 def _upsert_market_data(db: Session, rows: list[dict]):
@@ -62,7 +61,6 @@ def _upsert_daily_context(
     prev_close, prev_day_volume, prev5_volumes,
     early_high, early_high_time, early_high_pct,
     cumulative_vol, volume_ratio,
-    passes_price,
 ):
     db.execute(text("""
         INSERT INTO daily_context (
@@ -74,9 +72,8 @@ def _upsert_daily_context(
         ) VALUES (
             :date, :sid, :pc, :pdv,
             :ehp, :eht, :ehpct,
-            :cv, :cv,
-            :vr, :vr,
-            :pp, TRUE
+            :cv, :cv, :vr, :vr,
+            TRUE, TRUE
         )
         ON CONFLICT (date, stock_id) DO UPDATE SET
             prev_close                = EXCLUDED.prev_close,
@@ -91,11 +88,9 @@ def _upsert_daily_context(
             passes_price_filter       = EXCLUDED.passes_price_filter
     """), {
         "date": target_date, "sid": stock_id,
-        "pc":   prev_close,  "pdv": prev_day_volume,
-        "ehp":  early_high,  "eht": early_high_time, "ehpct": early_high_pct,
-        "cv":   cumulative_vol,
-        "vr":   volume_ratio,
-        "pp":   passes_price,
+        "pc": prev_close, "pdv": prev_day_volume,
+        "ehp": early_high, "eht": early_high_time, "ehpct": early_high_pct,
+        "cv": cumulative_vol, "vr": volume_ratio,
     })
     db.commit()
 
@@ -106,20 +101,11 @@ def fetch_and_store_single_date(
     price_threshold: float = DEFAULT_PRICE_THRESHOLD,
     min_volume_zhang: int  = DEFAULT_MIN_VOLUME_ZHANG,
 ) -> dict:
-    """
-    抓取單一日期的資料。
-
-    Stage 1：全市場日線 → 篩 candidates（1 次 request）
-    Stage 2：逐支 candidate 抓 1 分 K（candidates × 1 次）
-    """
-    logger.info(
-        f"[FETCH DATE START] date={target_date} "
-        f"threshold={price_threshold*100:.0f}% min_vol={min_volume_zhang}張"
-    )
+    logger.info(f"[FETCH DATE START] date={target_date} threshold={price_threshold*100:.0f}% min_vol={min_volume_zhang}張")
     stats = {"fetched": 0, "skipped": 0, "errors": 0, "candidates": 0}
 
-    # ── Stage 1：全市場日線篩選（1 次 request）────────────────────────
-    logger.info(f"[FETCH STEP] date={target_date} step=market_daily_screen")
+    # Stage 1：全市場日線篩選（1 次 request）
+    logger.info(f"[FETCH STEP] date={target_date} step=market_screen")
     candidates_df = fetch_candidates(
         target_date,
         min_change_pct   = price_threshold * 100,
@@ -127,12 +113,12 @@ def fetch_and_store_single_date(
     )
 
     if candidates_df is None:
-        logger.error(f"[FETCH ERROR] date={target_date} step=market_daily error=API失敗")
+        logger.error(f"[FETCH ERROR] date={target_date} step=market_screen error=API失敗")
         mark_date_error(db, target_date, "全市場日線 API 失敗")
         return {"total": 0, **stats}
 
     if candidates_df.empty:
-        logger.info(f"[FETCH STEP] date={target_date} step=no_candidates → 標記完成")
+        logger.info(f"[FETCH STEP] date={target_date} step=no_candidates")
         mark_date_done(db, target_date, 0, 0, 0, price_threshold)
         return {"total": 0, **stats}
 
@@ -140,18 +126,25 @@ def fetch_and_store_single_date(
     stats["candidates"] = total
     logger.info(f"[FETCH STEP] date={target_date} step=candidates_found count={total}")
 
-    # ── Stage 2：逐支 candidate 抓 1 分 K────────────────────────────
-    for i, row in candidates_df.iterrows():
-        stock_id        = str(row["stock_id"])
-        prev_close      = float(row.get("prev_close") or 0)
-        prev5_volumes   = row.get("prev5_volumes") or []
-        prev_day_volume = int(prev5_volumes[-1]) if prev5_volumes else 0
-
-        if prev_close <= 0:
-            stats["skipped"] += 1
-            continue
+    # Stage 2：逐支 candidate 抓昨收 + KBar
+    for _, row in candidates_df.iterrows():
+        stock_id = str(row["stock_id"])
 
         try:
+            # 2a：取昨收 + 前5日量
+            logger.info(f"[FETCH STEP] date={target_date} step=prev_context stock_id={stock_id}")
+            ctx = fetch_prev_context(stock_id, target_date)
+            time.sleep(0.1)
+
+            if ctx is None or ctx["prev_close"] <= 0:
+                stats["skipped"] += 1
+                continue
+
+            prev_close      = ctx["prev_close"]
+            prev_day_volume = ctx["prev_day_volume"]
+            prev5_volumes   = ctx["prev5_day_volumes"]
+
+            # 2b：取 1 分 K
             logger.info(f"[FETCH STEP] date={target_date} step=kbar stock_id={stock_id}")
             df = fetch_1min_kbar(stock_id, target_date)
             time.sleep(0.1)
@@ -160,24 +153,23 @@ def fetch_and_store_single_date(
                 stats["skipped"] += 1
                 continue
 
-            # 早盤資料（計算 Key Price 用）
+            # 早盤資料
             df_e = df[
                 (df["time"].astype(str) >= EARLY_START) &
                 (df["time"].astype(str) <= EARLY_END)
             ]
 
             if df_e.empty:
-                early_high      = float(row.get("close") or 0)
+                early_high      = prev_close
                 early_high_time = None
-                early_high_pct  = float(row.get("change_pct") or 0)
-                cumulative_vol  = int(row.get("volume_zhang") or 0)
+                early_high_pct  = 0.0
+                cumulative_vol  = 0
             else:
                 early_high      = float(df_e["high"].max())
                 early_high_time = str(df_e.loc[df_e["high"].idxmax(), "time"])
                 early_high_pct  = round((early_high / prev_close - 1) * 100, 4) if prev_close else 0
                 cumulative_vol  = int(df_e["volume"].sum())
 
-            # 量比（分母使用 Stage 1 同一次 response 取得的前5日量，不額外 request）
             volume_ratio = compute_volume_ratio(cumulative_vol, prev5_volumes)
 
             # 寫入 market_data（全天）
@@ -187,10 +179,6 @@ def fetch_and_store_single_date(
                  "close": r.get("close"), "volume": r.get("volume", 0)}
                 for _, r in df.iterrows()
             ]
-            logger.info(
-                f"[FETCH STEP] date={target_date} step=db_write "
-                f"stock_id={stock_id} rows={len(rows_to_insert)}"
-            )
             _upsert_market_data(db, rows_to_insert)
 
             # 寫入 daily_context
@@ -199,34 +187,21 @@ def fetch_and_store_single_date(
                 prev_close, prev_day_volume, prev5_volumes,
                 early_high, early_high_time, early_high_pct,
                 cumulative_vol, volume_ratio,
-                passes_price=True,  # 通過 Stage 1 篩選才到這裡
             )
 
             stats["fetched"] += 1
             logger.info(
                 f"[FETCH CANDIDATE DONE] date={target_date} stock_id={stock_id} "
-                f"early_high={early_high} pct={early_high_pct:.1f}% "
-                f"vol={cumulative_vol}張 vr={volume_ratio}"
+                f"early_high={early_high} pct={early_high_pct:.1f}% vr={volume_ratio}"
             )
 
         except Exception as e:
-            logger.error(
-                f"[FETCH ERROR] date={target_date} step=kbar "
-                f"stock_id={stock_id} error={e}"
-            )
+            logger.error(f"[FETCH ERROR] date={target_date} stock_id={stock_id} error={e}")
             stats["errors"] += 1
             continue
 
-    mark_date_done(
-        db, target_date,
-        stats["fetched"], stats["skipped"], stats["errors"],
-        price_threshold,
-    )
-    logger.info(
-        f"[FETCH DATE DONE] date={target_date} "
-        f"candidates={stats['candidates']} fetched={stats['fetched']} "
-        f"errors={stats['errors']}"
-    )
+    mark_date_done(db, target_date, stats["fetched"], stats["skipped"], stats["errors"], price_threshold)
+    logger.info(f"[FETCH DATE DONE] date={target_date} candidates={stats['candidates']} fetched={stats['fetched']}")
     return {"total": total, **stats}
 
 
@@ -237,11 +212,7 @@ def fetch_missing_dates(
     price_threshold: float = DEFAULT_PRICE_THRESHOLD,
     min_volume_zhang: int  = DEFAULT_MIN_VOLUME_ZHANG,
 ) -> dict:
-    """只抓缺少的日期。"""
-    logger.info(
-        f"[FETCH MISSING DATES] from={date_from} to={date_to} "
-        f"threshold={price_threshold*100:.0f}% min_vol={min_volume_zhang}張"
-    )
+    logger.info(f"[FETCH MISSING DATES] from={date_from} to={date_to}")
     missing = get_missing_dates(db, date_from, date_to, price_threshold)
 
     if not missing:
