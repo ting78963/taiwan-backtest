@@ -133,18 +133,18 @@ def fetch_and_store_single_date(
         stock_id = str(row["stock_id"])
 
         try:
-            # 2a：從 Stage 1 取昨收（close - spread），再逐支抓前5日量
-            prev_close = float(row.get("prev_close") or 0)
-            if prev_close <= 0:
-                stats["skipped"] += 1
-                continue
-
+            # 2a：逐支取昨收 + 前5日量（TaiwanStockPrice 傳 data_id）
             logger.info(f"[FETCH STEP] date={target_date} step=prev_context stock_id={stock_id}")
             ctx = fetch_prev_context(stock_id, target_date)
             time.sleep(0.1)
 
-            prev_day_volume = ctx["prev_day_volume"] if ctx else 0
-            prev5_volumes   = ctx["prev5_day_volumes"] if ctx else []
+            if ctx is None or ctx["prev_close"] <= 0:
+                stats["skipped"] += 1
+                continue
+
+            prev_close      = ctx["prev_close"]
+            prev_day_volume = ctx["prev_day_volume"]
+            prev5_volumes   = ctx["prev5_day_volumes"]
 
             # 2b：取 1 分 K
             logger.info(f"[FETCH STEP] date={target_date} step=kbar stock_id={stock_id}")
