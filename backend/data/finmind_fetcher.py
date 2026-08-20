@@ -168,7 +168,9 @@ def fetch_1min_kbar(stock_id: str, target_date: date) -> Optional[pd.DataFrame]:
     if df is None or df.empty:
         return df
 
-    df["datetime"] = pd.to_datetime(df["date"])
+    # FinMind TaiwanStockKBar 時間在 'minute' 欄位，不是 'date'
+    time_col = "minute" if "minute" in df.columns else "date"
+    df["datetime"] = pd.to_datetime(df[time_col])
     df["date"]     = df["datetime"].dt.date
     df["time"]     = df["datetime"].dt.time
     df["stock_id"] = stock_id
