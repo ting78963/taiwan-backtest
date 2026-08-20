@@ -224,7 +224,8 @@ async def run_events(req: EventRequest, background_tasks: BackgroundTasks, db=De
             from datetime import timedelta
             versions = dict(key=req.key_version, attack=req.attack_version, outcome=req.outcome_version)
             dates_needed = get_dates_needing_events(
-                db2, req.date_from, req.date_to, versions, req.force_rerun
+                db2, req.date_from, req.date_to,
+                req.key_version, req.attack_version, req.outcome_version
             )
             if not dates_needed:
                 logger.info(f"[EVENT TASK] task_id={task_id} 所有日期事件資料已是最新版本")
