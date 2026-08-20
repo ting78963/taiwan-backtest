@@ -378,6 +378,7 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
     entry_mode 必須指定，避免同一 attack 三列重複計算。
     TP 達成：first_plusXXX_time IS NOT NULL AND <= '09:59:00'
     """
+    from sqlalchemy import text
     TP_COLS = [
         ("050", "+0.5%"), ("075", "+0.75%"), ("100", "+1.0%"),
         ("125", "+1.25%"), ("150", "+1.5%"), ("200", "+2.0%"),
