@@ -39,9 +39,11 @@ def _upsert_market_data(db: Session, rows: list[dict]):
         INSERT INTO market_data
             (date, stock_id, time, open, high, low, close, volume)
         SELECT
-            unnest(:dates::date[]), unnest(:sids::varchar[]), unnest(:times::time[]),
-            unnest(:opens::numeric[]), unnest(:highs::numeric[]), unnest(:lows::numeric[]),
-            unnest(:closes::numeric[]), unnest(:vols::bigint[])
+            unnest(CAST(:dates AS date[])), unnest(CAST(:sids AS varchar[])),
+            unnest(CAST(:times AS time[])),
+            unnest(CAST(:opens AS numeric[])), unnest(CAST(:highs AS numeric[])),
+            unnest(CAST(:lows AS numeric[])), unnest(CAST(:closes AS numeric[])),
+            unnest(CAST(:vols AS bigint[]))
         ON CONFLICT (date, stock_id, time) DO NOTHING
     """), {
         "dates":  [r["date"]               for r in rows],
