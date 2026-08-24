@@ -484,6 +484,53 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       </div>
     </div>
   </div>
+
+  <!-- 單因子掃描 -->
+  <div class="panel" style="margin-top:16px">
+    <div class="panel-header"><span>📈</span><span class="panel-title">單因子掃描</span></div>
+    <div class="panel-body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        選擇一個因子，自動掃描各門檻下的達成率。日期、entry_mode、cutoff 沿用上方設定。其餘四項固定為「不限」。
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="fg">
+          <label>掃描因子</label>
+          <select id="scan-factor">
+            <option value="volume_ratio">Volume Ratio（量比）</option>
+            <option value="attack_number">Attack Number（攻擊次數）</option>
+            <option value="attack_volume">Attack Volume V1B（張）</option>
+            <option value="c31">C31</option>
+            <option value="early_high_pct">Early High %（早盤漲幅）</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="runScan()">📈 執行掃描</button>
+      </div>
+      <div id="scan-result" style="display:none;margin-top:16px">
+        <div id="scan-note" style="font-size:11px;color:var(--gold);margin-bottom:8px"></div>
+        <div style="overflow-x:auto">
+          <table class="data-table" style="width:100%;min-width:700px">
+            <thead>
+              <tr>
+                <th>門檻</th>
+                <th>N</th>
+                <th>N保留率</th>
+                <th>+0.5%</th>
+                <th>+0.75%</th>
+                <th>+1.0%</th>
+                <th>+1.5%</th>
+                <th>+2.0%</th>
+                <th>+3.0%</th>
+                <th>+1%提升(pp)</th>
+              </tr>
+            </thead>
+            <tbody id="scan-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ⑤ 結果報表 -->
@@ -763,6 +810,118 @@ function renderAnalyzeResult(data) {
     .map(([k,v]) => `${k}=${v}`)
     .join('  ');
   document.getElementById('az-filters').textContent = active ? '篩選條件：' + active : '（無額外篩選條件）';
+}
+
+// ─── 單因子掃描 ──────────────────────────────────────────────
+const SCAN_GRIDS = {
+  volume_ratio:   { label: 'Volume Ratio（量比）', key: 'min_volume_ratio',
+                    thresholds: [null, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0],
+                    labels:     ['Baseline', '≥0.5', '≥0.8', '≥1.0', '≥1.5', '≥2.0', '≥3.0'],
+                    note: '' },
+  attack_number:  { label: 'Attack Number（攻擊次數）', key: 'min_attack_number',
+                    thresholds: [null, 2, 3, 4, 5, 6, 8],
+                    labels:     ['Baseline', '≥2', '≥3', '≥4', '≥5', '≥6', '≥8'],
+                    note: '' },
+  attack_volume:  { label: 'Attack Volume V1B（張）', key: 'min_attack_volume',
+                    thresholds: [null, 50, 100, 200, 500, 1000, 2000, 5000],
+                    labels:     ['Baseline', '≥50', '≥100', '≥200', '≥500', '≥1000', '≥2000', '≥5000'],
+                    note: '' },
+  c31:            { label: 'C31', key: 'min_c31',
+                    thresholds: [null, 0.1, 0.2, 0.5, 1.0, 2.0, 4.0],
+                    labels:     ['Baseline', '≥0.1', '≥0.2', '≥0.5', '≥1.0', '≥2.0', '≥4.0'],
+                    note: '⚠️ C31 只在 Upward Attack 且越過 Key Price 時有值，Baseline N=1025 中有效 C31 約 466 筆。設任何門檻後 NULL 自然排除，N 下降包含結構差異，非純門檻效果。' },
+  early_high_pct: { label: 'Early High %（早盤漲幅）', key: 'min_early_high_pct',
+                    thresholds: [null, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 9.9],
+                    labels:     ['Baseline', '≥4%', '≥5%', '≥6%', '≥7%', '≥8%', '≥9%', '≥9.9%（漲停）'],
+                    note: '' },
+};
+
+const SCAN_TP_KEYS = ['050','075','100','150','200','300'];
+const SCAN_TP_LABELS = ['+0.5%','+0.75%','+1.0%','+1.5%','+2.0%','+3.0%'];
+
+async function runScan() {
+  const factor = document.getElementById('scan-factor').value;
+  const from   = document.getElementById('az-from').value;
+  const to     = document.getElementById('az-to').value;
+  const entry  = document.getElementById('az-entry').value;
+  const cutoff = '09:59';
+
+  if (!from || !to) { alert('請先設定日期範圍'); return; }
+
+  const grid = SCAN_GRIDS[factor];
+  const btn  = document.querySelector('#page-analyze .btn-green:last-of-type');
+  btn.disabled = true; btn.textContent = '掃描中...';
+
+  document.getElementById('scan-note').textContent = grid.note;
+  document.getElementById('scan-result').style.display = 'block';
+  document.getElementById('scan-tbody').innerHTML =
+    `<tr><td colspan="10" style="text-align:center;color:var(--muted)">查詢中，請稍候...</td></tr>`;
+
+  try {
+    // 並行送出所有 threshold 的請求
+    const requests = grid.thresholds.map(t => {
+      const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+      if (t !== null) body[grid.key] = t;
+      return fetch(API + '/api/analyze', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+    });
+
+    const results = await Promise.all(requests);
+    renderScanResult(grid, results);
+  } catch(e) {
+    document.getElementById('scan-tbody').innerHTML =
+      `<tr><td colspan="10" style="color:var(--red)">掃描失敗：${e}</td></tr>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '📈 執行掃描';
+  }
+}
+
+function renderScanResult(grid, results) {
+  const baseN    = results[0]?.sample_count || 0;
+  const base100  = results[0]?.matrix?.find(r => r.tp_label === '+1.0%')?.hit_rate_pct || 0;
+
+  const tbody = document.getElementById('scan-tbody');
+  tbody.innerHTML = results.map((d, i) => {
+    const n       = d.sample_count || 0;
+    const retPct  = baseN > 0 ? (n / baseN * 100).toFixed(0) + '%' : '—';
+    const isBase  = (i === 0);
+
+    // TP 達成率
+    const tpCols = SCAN_TP_KEYS.map(k => {
+      const r = d.matrix?.find(m => {
+        if (k === '050') return m.tp_label === '+0.5%';
+        if (k === '075') return m.tp_label === '+0.75%';
+        if (k === '100') return m.tp_label === '+1.0%';
+        if (k === '150') return m.tp_label === '+1.5%';
+        if (k === '200') return m.tp_label === '+2.0%';
+        if (k === '300') return m.tp_label === '+3.0%';
+      });
+      const pct = r?.hit_rate_pct ?? '—';
+      return `<td>${typeof pct === 'number' ? pct.toFixed(1) : pct}</td>`;
+    }).join('');
+
+    // +1% 提升（pp）
+    const cur100 = d.matrix?.find(r => r.tp_label === '+1.0%')?.hit_rate_pct;
+    let pp = '—';
+    if (!isBase && cur100 !== undefined && cur100 !== null) {
+      const diff = (cur100 - base100);
+      const sign = diff >= 0 ? '+' : '';
+      const col  = diff >= 1 ? 'var(--green)' : diff <= -1 ? 'var(--red)' : 'var(--muted)';
+      pp = `<span style="color:${col}">${sign}${diff.toFixed(1)}pp</span>`;
+    }
+
+    const rowStyle = isBase ? 'background:var(--s2);font-weight:600' : '';
+    return `<tr style="${rowStyle}">
+      <td>${grid.labels[i]}</td>
+      <td>${n}</td>
+      <td>${retPct}</td>
+      ${tpCols}
+      <td>${pp}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ─── Checkbox sync ────────────────────────────────────────
