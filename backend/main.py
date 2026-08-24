@@ -107,6 +107,7 @@ class AnalyzeRequest(BaseModel):
     min_early_high_pct: Optional[float] = None   # early_high_pct >= X%
     attack_version:     str   = "V1"
     outcome_version:    str   = "V1"
+    cutoff:             str   = "09:59"   # 截止時間：09:59 / 11:59 / 13:30
 
 
 class BacktestRequest(BaseModel):
@@ -382,10 +383,14 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         ("125", "+1.25%"), ("150", "+1.5%"), ("200", "+2.0%"),
         ("250", "+2.5%"), ("300", "+3.0%"), ("400", "+4.0%"), ("500", "+5.0%"),
     ]
-    CUTOFF = "09:59:00"
+    # cutoff 參數化：前端傳 "09:59"，這裡補秒數
+    cutoff_map = {"09:59": "09:59:00", "11:59": "11:59:00", "13:30": "13:30:00"}
+    CUTOFF = cutoff_map.get(req.cutoff, req.cutoff + ":00" if len(req.cutoff) == 5 else req.cutoff)
 
+    # TP hit：first_plusXXX_time 在 cutoff 前觸及
     tp_select = ", ".join([
-        f"SUM(CASE WHEN od.first_plus{k}_time IS NOT NULL AND CAST(od.first_plus{k}_time AS TIME) <= '{CUTOFF}' THEN 1 ELSE 0 END) AS hit_{k}"
+        f"SUM(CASE WHEN od.first_plus{k}_time IS NOT NULL "
+        f"AND CAST(od.first_plus{k}_time AS TIME) <= CAST(:cutoff AS TIME) THEN 1 ELSE 0 END) AS hit_{k}"
         for k, _ in TP_COLS
     ])
 
@@ -394,11 +399,15 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         "ae.attack_version = :av",
         "od.outcome_version = :ov",
         "od.entry_mode = :em",
+        # denominator 修正：只計 entry_time <= cutoff 的樣本
+        # entry_time > cutoff 的 Attack 根本沒機會在 cutoff 前達標，不得計入分母
+        "CAST(od.entry_time AS TIME) <= CAST(:cutoff AS TIME)",
     ]
     params = {
         "df": req.date_from, "dt": req.date_to,
         "av": req.attack_version, "ov": req.outcome_version,
         "em": req.entry_mode,
+        "cutoff": CUTOFF,
     }
 
     if req.min_attack_number  is not None:
@@ -456,7 +465,7 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         "trading_day_count":   trading_day_count,
         "avg_signals_per_day": round(sample_count / trading_day_count, 1) if trading_day_count else 0,
         "entry_mode":          req.entry_mode,
-        "cutoff":              "09:59",
+        "cutoff":              req.cutoff,
         "matrix":              matrix,
         "filters_applied": {
             "min_attack_number":  req.min_attack_number,

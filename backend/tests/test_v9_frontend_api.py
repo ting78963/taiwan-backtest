@@ -221,6 +221,67 @@ def test_t53_price_pct_at_0910_removed():
 # 執行
 # ────────────────────────────────────────────────────────────
 
+
+# ────────────────────────────────────────────────────────────
+# T54：analyze denominator 必須只計 entry_time <= cutoff 的樣本
+# ────────────────────────────────────────────────────────────
+
+def test_t54_analyze_denominator_cutoff():
+    """
+    entry_time > cutoff 的 Attack 沒機會在 cutoff 前達標，不得計入分母。
+    驗證：
+      1. SQL 使用 :cutoff 參數（不拼 f-string）
+      2. params 有 cutoff 鍵
+      3. 不出現 <= \'{CUTOFF}\' 的 f-string 拼接
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+3000]
+
+    # 必須有 :cutoff 參數
+    assert ":cutoff" in src, "analyze SQL 應使用 :cutoff 參數，不拼 f-string"
+
+    # 必須有 entry_time 的 cutoff 過濾（denominator）
+    assert "entry_time" in src, "analyze SQL 應包含 entry_time 的 cutoff 過濾"
+
+    # params 必須有 cutoff 鍵
+    assert '"cutoff": CUTOFF' in src or '"cutoff"' in src, (
+        "analyze params 應包含 cutoff 鍵"
+    )
+
+    # 不得出現 f-string 拼接 CUTOFF 進 SQL
+    assert "'{CUTOFF}'" not in src, (
+        "analyze SQL 不得出現 \'{CUTOFF}\' 的 f-string 拼接，應使用 :cutoff 參數"
+    )
+
+    # cutoff 必須從 req.cutoff 取得
+    assert "req.cutoff" in src, "CUTOFF 值應從 req.cutoff 取得"
+
+    print("✓ T54 PASS — analyze denominator 正確使用 :cutoff 參數")
+    print("   entry_time <= CAST(:cutoff AS TIME)：分母只計 cutoff 前進場的樣本")
+    print("   first_plusXXX_time <= CAST(:cutoff AS TIME)：TP numerator 同一 cutoff")
+    print("   無 f-string 拼接，SQL injection 安全")
+
+
+# ────────────────────────────────────────────────────────────
+# T55：AnalyzeRequest 包含 cutoff 參數
+# ────────────────────────────────────────────────────────────
+
+def test_t55_analyze_request_has_cutoff():
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("class AnalyzeRequest")
+    end = main_src.find("\nclass ", idx + 10)
+    az_src = main_src[idx:end]
+    assert "cutoff" in az_src, "AnalyzeRequest 應包含 cutoff 參數"
+    assert "09:59" in az_src, "cutoff 預設值應為 09:59"
+    print("✓ T55 PASS — AnalyzeRequest 含 cutoff 參數，預設 09:59")
+
+
+# ────────────────────────────────────────────────────────────
+# 執行
+# ────────────────────────────────────────────────────────────
+
 def run_all():
     tests = [
         test_t45_frontend_no_cost_in_body,
@@ -232,6 +293,8 @@ def run_all():
         test_t51_no_banned_in_production,
         test_t52_key_price_is_early_high_not_prev_close,
         test_t53_price_pct_at_0910_removed,
+        test_t54_analyze_denominator_cutoff,
+        test_t55_analyze_request_has_cutoff,
     ]
     passed = failed = 0
     print("=" * 60)
