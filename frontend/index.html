@@ -606,6 +606,7 @@ function nav(id, el) {
   document.getElementById('page-'+id).classList.add('active');
   el.classList.add('active');
   if(id==='overview') loadOverview();
+loadDates();
 
 async function loadDates() {
   try {
@@ -805,7 +806,6 @@ function setStatus(el,type,msg){el.className='status-bar status-'+type;el.textCo
 
 // ─── Overview ────────────────────────────────────────────
 async function loadOverview(){
-  loadDates();
   try{
     const d = await fetch(API+'/api/stats/overview').then(r=>r.json());
     document.getElementById('s-days').textContent    = d.data_days   || 0;
