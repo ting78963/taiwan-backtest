@@ -1264,25 +1264,45 @@ async function runCross() {
     const baseN    = baseResult.sample_count || 0;
     const baseRate = baseResult.matrix?.find(r => r.tp_label === tpLabel)?.hit_rate_pct || 0;
 
-    // 送出所有 A×B 組合（並行）
-    const requests = [];
+    // 分批送出 A×B 組合，batch size=6，避免並行請求過多造成連線失敗
+    // 單格失敗不影響其他格，失敗格顯示 error 標記
+    const BATCH_SIZE = 6;
+    const cells = [];
     for (const bA of defA.buckets) {
       for (const bB of defB.buckets) {
+        cells.push({ bA, bB });
+      }
+    }
+
+    const results = new Array(cells.length).fill(null);
+    for (let i = 0; i < cells.length; i += BATCH_SIZE) {
+      const batch = cells.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async ({ bA, bB }, j) => {
+        const idx  = i + j;
         const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
         if (isC31) body.require_c31_not_null = true;
         if (bA.min_key && bA.lower !== null) body[bA.min_key] = bA.lower;
         if (bA.max_key && bA.upper !== null) body[bA.max_key] = bA.upper;
         if (bB.min_key && bB.lower !== null) body[bB.min_key] = bB.lower;
         if (bB.max_key && bB.upper !== null) body[bB.max_key] = bB.upper;
-        requests.push(
-          fetch(API + '/api/analyze', {
+        try {
+          const res = await fetch(API + '/api/analyze', {
             method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify(body),
-          }).then(r => r.json())
-        );
-      }
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            console.error(`[CrossScan] A=${bA.label} B=${bB.label} HTTP=${res.status}`, text);
+            results[idx] = { _error: true, _status: res.status, _label_a: bA.label, _label_b: bB.label };
+          } else {
+            results[idx] = await res.json();
+          }
+        } catch(e) {
+          console.error(`[CrossScan] A=${bA.label} B=${bB.label} body=${JSON.stringify(body)} error=${e}`);
+          results[idx] = { _error: true, _label_a: bA.label, _label_b: bB.label };
+        }
+      }));
     }
-    const results = await Promise.all(requests);
     renderCrossResult(defA, defB, tpLabel, baseN, baseRate, results);
   } catch(e) {
     document.getElementById('cross-table-wrap').innerHTML =
@@ -1309,23 +1329,26 @@ function renderCrossResult(defA, defB, tpLabel, baseN, baseRate, results) {
     html += `<tr><td style="font-weight:600">${bA.label}</td>`;
     defB.buckets.forEach((bB, iB) => {
       const d   = results[iA * nB + iB];
-      const n   = d?.sample_count || 0;
-      const rt  = getRate(d);
-      const pp  = (rt !== undefined && rt !== null) ? (rt - baseRate) : null;
-      const ppStr = pp !== null
-        ? `<span style="font-size:10px;color:${pp >= 1 ? 'var(--green)' : pp <= -1 ? 'var(--red)' : 'var(--muted)'}">${pp >= 0 ? '+' : ''}${pp.toFixed(1)}pp</span>`
-        : '';
-      // 背景色：依 pp 深淺
-      const bg = pp === null ? '' :
-                 pp >= 5    ? 'background:rgba(0,200,100,0.25)' :
-                 pp >= 2    ? 'background:rgba(0,200,100,0.12)' :
-                 pp <= -5   ? 'background:rgba(255,80,80,0.25)' :
-                 pp <= -2   ? 'background:rgba(255,80,80,0.12)' : '';
-      html += `<td style="text-align:center;${bg}">
-        <div style="font-size:13px;font-weight:600">${fmt(rt)}%</div>
-        <div style="font-size:10px;color:var(--muted)">N=${n}</div>
-        <div>${ppStr}</div>
-      </td>`;
+      if (d?._error) {
+        html += `<td style="text-align:center;color:var(--red);font-size:10px">ERR<br>${d._label_a}/${d._label_b}</td>`;
+      } else {
+        const n   = d?.sample_count || 0;
+        const rt  = getRate(d);
+        const pp  = (rt !== undefined && rt !== null) ? (rt - baseRate) : null;
+        const ppStr = pp !== null
+          ? `<span style="font-size:10px;color:${pp >= 1 ? 'var(--green)' : pp <= -1 ? 'var(--red)' : 'var(--muted)'}">${pp >= 0 ? '+' : ''}${pp.toFixed(1)}pp</span>`
+          : '';
+        const bg = pp === null ? '' :
+                   pp >= 5    ? 'background:rgba(0,200,100,0.25)' :
+                   pp >= 2    ? 'background:rgba(0,200,100,0.12)' :
+                   pp <= -5   ? 'background:rgba(255,80,80,0.25)' :
+                   pp <= -2   ? 'background:rgba(255,80,80,0.12)' : '';
+        html += `<td style="text-align:center;${bg}">
+          <div style="font-size:13px;font-weight:600">${fmt(rt)}%</div>
+          <div style="font-size:10px;color:var(--muted)">N=${n}</div>
+          <div>${ppStr}</div>
+        </td>`;
+      }
     });
     html += '</tr>';
   });
