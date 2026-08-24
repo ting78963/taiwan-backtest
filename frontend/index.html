@@ -599,15 +599,6 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
 window.API_BASE = 'https://taiwan-backtest-api.onrender.com';
 const API = window.API_BASE || '';
 
-// ─── Navigation ──────────────────────────────────────────
-function nav(id, el) {
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
-  el.classList.add('active');
-  if(id==='overview') loadOverview();
-loadDates();
-
 async function loadDates() {
   try {
     const d = await fetch(API + '/api/stats/dates').then(r => r.json());
@@ -659,6 +650,17 @@ async function clearAllData() {
     alert('❌ 清除失敗：' + e);
   }
 }
+
+
+// ─── Navigation ──────────────────────────────────────────
+function nav(id, el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  el.classList.add('active');
+  if(id==='overview') loadOverview();
+loadDates();
+
 
   if(id==='results')  loadRunList();
   if(id==='events')   loadEngineVersions();
