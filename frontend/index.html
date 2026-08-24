@@ -191,6 +191,33 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       </div>
     </div>
   </div>
+
+  <!-- 已抓取日期 -->
+  <div class="panel" style="margin-top:16px">
+    <div class="panel-header">
+      <span>📅</span><span class="panel-title">已抓取日期</span>
+      <button class="btn btn-sm" style="margin-left:auto;background:var(--s2)"
+              onclick="loadDates()">🔄 重新整理</button>
+    </div>
+    <div class="panel-body">
+      <div id="dates-table-wrap">
+        <table class="data-table" style="width:100%">
+          <thead><tr>
+            <th>日期</th><th>門檻</th><th>Candidates</th>
+            <th>Fetch</th><th>Event</th><th>Key</th><th>Attack</th><th>抓取時間</th>
+          </tr></thead>
+          <tbody id="dates-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted)">載入中...</td></tr></tbody>
+        </table>
+      </div>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--s2)">
+        <button class="btn" style="background:var(--red);color:#fff"
+                onclick="clearAllData()">🗑️ 清除全部研究資料</button>
+        <span style="font-size:11px;color:var(--muted);margin-left:10px">
+          清除後資料不可還原，schema 和系統設定保留
+        </span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ② 抓取資料 -->
@@ -579,6 +606,59 @@ function nav(id, el) {
   document.getElementById('page-'+id).classList.add('active');
   el.classList.add('active');
   if(id==='overview') loadOverview();
+
+async function loadDates() {
+  try {
+    const d = await fetch(API + '/api/stats/dates').then(r => r.json());
+    const tbody = document.getElementById('dates-tbody');
+    if (!d.dates || d.dates.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">尚無資料</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.dates.map(r => {
+      const pct   = r.collection_threshold ? (r.collection_threshold * 100).toFixed(0) + '%' : '—';
+      const fetch = r.fetch_status === 'done'
+        ? '<span style="color:var(--green)">✓</span>'
+        : '<span style="color:var(--red)">✗</span>';
+      const event = r.event_done
+        ? '<span style="color:var(--green)">✓</span>'
+        : '<span style="color:var(--muted)">—</span>';
+      const at = r.fetched_at ? r.fetched_at.slice(0, 16).replace('T', ' ') : '—';
+      return `<tr>
+        <td><b>${r.date}</b></td>
+        <td>${pct}</td>
+        <td>${r.stocks_fetched}</td>
+        <td>${fetch}</td>
+        <td>${event}</td>
+        <td>${r.keys_found}</td>
+        <td>${r.attacks_found}</td>
+        <td style="font-size:11px;color:var(--muted)">${at}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('dates-tbody').innerHTML =
+      '<tr><td colspan="8" style="color:var(--red)">載入失敗</td></tr>';
+  }
+}
+
+async function clearAllData() {
+  if (!confirm('⚠️ 確定要清除全部研究資料嗎？\n\n這將刪除所有 market_data、event、outcome、backtest 資料。\nschema 和系統設定會保留。\n\n此操作不可還原！')) return;
+  if (!confirm('再次確認：清除後資料無法復原，確定繼續嗎？')) return;
+  try {
+    const res = await fetch(API + '/api/clear_all', { method: 'DELETE' });
+    const d = await res.json();
+    if (res.ok) {
+      alert('✅ ' + d.message);
+      loadOverview();
+      loadDates();
+    } else {
+      alert('❌ 清除失敗：' + (d.detail || JSON.stringify(d)));
+    }
+  } catch(e) {
+    alert('❌ 清除失敗：' + e);
+  }
+}
+
   if(id==='results')  loadRunList();
   if(id==='events')   loadEngineVersions();
   if(id==='export')   loadRunsForExport();
@@ -725,6 +805,7 @@ function setStatus(el,type,msg){el.className='status-bar status-'+type;el.textCo
 
 // ─── Overview ────────────────────────────────────────────
 async function loadOverview(){
+  loadDates();
   try{
     const d = await fetch(API+'/api/stats/overview').then(r=>r.json());
     document.getElementById('s-days').textContent    = d.data_days   || 0;

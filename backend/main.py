@@ -368,6 +368,76 @@ def clear_date(target_date: date, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── 清除全部研究資料 ──────────────────────────────────────────────────
+@app.delete("/api/clear_all")
+def clear_all(db=Depends(get_db)):
+    """
+    清除全部歷史研究資料，保留 schema 和 engine_versions。
+    全部在同一 transaction：全部成功才 COMMIT，任一失敗 ROLLBACK。
+    """
+    try:
+        # 依 FK 順序刪除：leaf → root
+        db.execute(text("DELETE FROM backtest_trades"))
+        db.execute(text("DELETE FROM backtest_runs"))
+        db.execute(text("DELETE FROM outcome_data"))
+        db.execute(text("DELETE FROM attack_events"))
+        db.execute(text("DELETE FROM key_events"))
+        db.execute(text("DELETE FROM daily_context"))
+        db.execute(text("DELETE FROM market_data"))
+        db.execute(text("DELETE FROM event_runs"))
+        db.execute(text("DELETE FROM data_inventory"))
+        db.commit()
+        logger.info("[CLEAR ALL] 全部研究資料已清除")
+        return {"status": "ok", "message": "全部研究資料已清除，schema 保留"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[CLEAR ALL ERROR] {e}")
+        raise HTTPException(status_code=500, detail=f"清除失敗，已 ROLLBACK：{e}")
+
+
+# ── 已抓取日期狀態 ─────────────────────────────────────────────────────
+@app.get("/api/stats/dates")
+def stats_dates(db=Depends(get_db)):
+    """
+    回傳每個已抓取日期的狀態。
+    JOIN data_inventory + event_runs，不新增 DB table。
+    """
+    rows = db.execute(text("""
+        SELECT
+            di.date,
+            di.collection_threshold,
+            di.stocks_fetched,
+            di.fetch_status,
+            di.fetched_at,
+            CASE WHEN er.date IS NOT NULL THEN TRUE ELSE FALSE END AS event_done,
+            COALESCE(er.keys_found, 0)    AS keys_found,
+            COALESCE(er.attacks_found, 0) AS attacks_found
+        FROM data_inventory di
+        LEFT JOIN event_runs er
+            ON di.date = er.date
+           AND er.key_version = 'V1'
+           AND er.attack_version = 'V1'
+           AND er.outcome_version = 'V1'
+        ORDER BY di.date DESC
+    """)).fetchall()
+
+    return {
+        "dates": [
+            {
+                "date":                 str(r[0]),
+                "collection_threshold": float(r[1]) if r[1] else None,
+                "stocks_fetched":       int(r[2]) if r[2] else 0,
+                "fetch_status":         r[3],
+                "fetched_at":           str(r[4]) if r[4] else None,
+                "event_done":           bool(r[5]),
+                "keys_found":           int(r[6]),
+                "attacks_found":        int(r[7]),
+            }
+            for r in rows
+        ]
+    }
+
+
 # ── 條件探索器 ────────────────────────────────────────────────────────
 @app.post("/api/analyze")
 def analyze(req: AnalyzeRequest, db=Depends(get_db)):
