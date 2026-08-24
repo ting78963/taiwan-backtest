@@ -478,8 +478,9 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
 
   <div id="az-result" style="display:none">
     <div class="panel">
-      <div class="panel-header"><span>📊</span><span class="panel-title">10:00 前達成率矩陣</span></div>
+      <div class="panel-header"><span>📊</span><span class="panel-title" id="az-result-title">達成率矩陣</span></div>
       <div class="panel-body">
+        <div id="az-snapshot" style="font-size:11px;color:var(--gold);background:var(--s2);padding:6px 10px;border-radius:6px;margin-bottom:8px;display:none"></div>
         <div id="az-meta" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>
         <table class="data-table" style="width:100%">
           <thead>
@@ -529,6 +530,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div class="btn-row">
         <button class="btn btn-green" onclick="runScan()">📈 執行掃描</button>
       </div>
+      <div id="scan-snapshot" style="font-size:11px;color:var(--gold);background:var(--s2);padding:6px 10px;border-radius:6px;margin-top:12px;display:none"></div>
       <div id="scan-result" style="display:none;margin-top:16px">
         <div id="scan-note" style="font-size:11px;color:var(--gold);margin-bottom:8px"></div>
         <div style="overflow-x:auto">
@@ -597,6 +599,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       <div class="btn-row">
         <button class="btn btn-green" onclick="runCross()">🔢 執行交叉掃描</button>
       </div>
+      <div id="cross-snapshot" style="font-size:11px;color:var(--gold);background:var(--s2);padding:6px 10px;border-radius:6px;margin-top:12px;display:none"></div>
       <div id="cross-result" style="display:none;margin-top:16px">
         <div id="cross-note" style="font-size:11px;color:var(--gold);margin-bottom:8px"></div>
         <div id="cross-table-wrap" style="overflow-x:auto"></div>
@@ -839,6 +842,13 @@ async function runAnalyze() {
       body: JSON.stringify(body),
     });
     const data = await res.json();
+    // 記錄本次執行的條件 snapshot
+    lastAnalyzeCondition = getConditionSnapshot();
+    // 更新標題（動態顯示 cutoff 的「下一分鐘」）
+    const titleEl = document.getElementById('az-result-title');
+    if (titleEl) titleEl.textContent = cutoffLabel(cutoff) + ' 達成率矩陣';
+    // 清除 stale 標示，改為 snapshot 標示
+    showSnapshot('az-snapshot', '本次分析條件', lastAnalyzeCondition);
     renderAnalyzeResult(data);
   } catch(e) {
     alert('分析失敗：' + e);
@@ -886,6 +896,87 @@ function renderAnalyzeResult(data) {
 }
 
 // ─── 單因子掃描 ──────────────────────────────────────────────
+// ─── cutoff → 顯示標籤 ─────────────────────────────────────────
+// UI 顯示 cutoff 的「下一分鐘」作為「XX:XX 前」
+const CUTOFF_DISPLAY = {
+  '09:59': '10:00', '10:29': '10:30', '10:59': '11:00',
+  '11:29': '11:30', '11:59': '12:00', '12:29': '12:30',
+  '12:59': '13:00', '13:30': '收盤',
+};
+function cutoffLabel(c) { return (CUTOFF_DISPLAY[c] || c) + (c === '13:30' ? '' : ' 前'); }
+
+// ─── 研究條件 snapshot ──────────────────────────────────────────
+// 記錄每次執行當下的條件，用於 stale 偵測和結果標示
+let lastAnalyzeCondition = null;
+let lastScanCondition    = null;
+let lastCrossCondition   = null;
+
+function getConditionSnapshot() {
+  const c = {
+    from:   document.getElementById('az-from').value,
+    to:     document.getElementById('az-to').value,
+    entry:  document.getElementById('az-entry').value,
+    cutoff: document.getElementById('az-cutoff').value,
+    atkNum: document.getElementById('az-atk-num').value,
+    atkVol: document.getElementById('az-atk-vol').value,
+    c31:    document.getElementById('az-c31').value,
+    vr:     document.getElementById('az-vr').value,
+    pct:    document.getElementById('az-pct').value,
+  };
+  return c;
+}
+
+function conditionSummary(c, extra) {
+  const parts = [`${c.from}～${c.to}`, c.entry, cutoffLabel(c.cutoff)];
+  if (c.atkNum) parts.push(`Attack#≥${c.atkNum}`);
+  if (c.atkVol) parts.push(`AtkVol≥${c.atkVol}`);
+  if (c.c31)    parts.push(`C31≥${c.c31}`);
+  if (c.vr)     parts.push(`VR≥${c.vr}`);
+  if (c.pct)    parts.push(`Early≥${c.pct}%`);
+  if (extra)    parts.push(extra);
+  return parts.join('　');
+}
+
+function isStale(last, current) {
+  if (!last) return false;
+  // 只比較影響研究結果的條件
+  return ['from','to','entry','cutoff','atkNum','atkVol','c31','vr','pct'].some(
+    k => last[k] !== current[k]
+  );
+}
+
+function showStale(snapshotId, last) {
+  const el = document.getElementById(snapshotId);
+  if (!el || !last) return;
+  el.style.display = 'block';
+  el.innerHTML = `⚠ 研究條件已變更，此結果為舊條件結果，請重新執行掃描<br>
+    <span style="color:var(--muted)">舊條件：${conditionSummary(last)}</span>`;
+}
+
+function showSnapshot(snapshotId, label, c, extra) {
+  const el = document.getElementById(snapshotId);
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = `📌 ${label}：${conditionSummary(c, extra)}`;
+  el.style.color = 'var(--muted)';
+}
+
+// ─── 監聽研究條件變更，標示 stale ───────────────────────────────
+['az-from','az-to','az-entry','az-cutoff',
+ 'az-atk-num','az-atk-vol','az-c31','az-vr','az-pct'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('change', () => {
+    const cur = getConditionSnapshot();
+    if (isStale(lastAnalyzeCondition, cur))
+      showStale('az-snapshot', lastAnalyzeCondition);
+    if (isStale(lastScanCondition, cur))
+      showStale('scan-snapshot', lastScanCondition);
+    if (isStale(lastCrossCondition, cur))
+      showStale('cross-snapshot', lastCrossCondition);
+  });
+});
+
 // 掃描模式：threshold（累積門檻）或 bucket（區間分箱）
 let scanMode = 'threshold';
 
@@ -1021,6 +1112,8 @@ async function runScan() {
         }).then(r => r.json());
       });
       const results = await Promise.all(requests);
+      lastScanCondition = getConditionSnapshot();
+      showSnapshot('scan-snapshot', `單因子掃描（${grid.label}）`, lastScanCondition);
       renderScanResult(grid, results);
 
     } else {
@@ -1053,6 +1146,8 @@ async function runScan() {
         ? `⚠️ C31 bucket 以有值樣本為基準（require_c31_not_null=true）。Baseline N=${baselineResult.sample_count}（C31 IS NOT NULL 的有效樣本）。`
         : bdef.note || '';
       document.getElementById('scan-note').textContent = note;
+      lastScanCondition = getConditionSnapshot();
+      showSnapshot('scan-snapshot', `單因子區間掃描（${bdef.label}）`, lastScanCondition);
       renderBucketResult(bdef, baselineResult, bucketResults);
     }
   } catch(e) {
@@ -1303,6 +1398,10 @@ async function runCross() {
         }
       }));
     }
+    lastCrossCondition = getConditionSnapshot();
+    showSnapshot('cross-snapshot',
+      `雙因子交叉（${defA.label} × ${defB.label}，主指標：${tpLabel}）`,
+      lastCrossCondition);
     renderCrossResult(defA, defB, tpLabel, baseN, baseRate, results);
   } catch(e) {
     document.getElementById('cross-table-wrap').innerHTML =
