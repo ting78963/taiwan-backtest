@@ -63,6 +63,7 @@ def _upsert_daily_context(
     prev_close, prev_day_volume, prev5_volumes,
     early_high, early_high_time, early_high_pct,
     cumulative_vol, volume_ratio,
+    price_threshold: float = 0.04,
 ):
     db.execute(text("""
         INSERT INTO daily_context (
@@ -75,7 +76,7 @@ def _upsert_daily_context(
             :date, :sid, :pc, :pdv,
             :ehp, :eht, :ehpct,
             :cv, :cv, :vr, :vr,
-            TRUE, TRUE
+            :pp, TRUE
         )
         ON CONFLICT (date, stock_id) DO UPDATE SET
             prev_close                = EXCLUDED.prev_close,
@@ -93,6 +94,7 @@ def _upsert_daily_context(
         "pc": prev_close, "pdv": prev_day_volume,
         "ehp": early_high, "eht": early_high_time, "ehpct": early_high_pct,
         "cv": cumulative_vol, "vr": volume_ratio,
+        "pp": early_high_pct is not None and early_high_pct >= price_threshold * 100,
     })
     db.commit()
 
@@ -189,12 +191,13 @@ def fetch_and_store_single_date(
                 prev_close, prev_day_volume, prev5_volumes,
                 early_high, early_high_time, early_high_pct,
                 cumulative_vol, volume_ratio,
+                price_threshold,
             )
 
             stats["fetched"] += 1
             logger.info(
                 f"[FETCH CANDIDATE DONE] date={target_date} stock_id={stock_id} "
-                f"early_high={early_high} pct={early_high_pct:.1f}% vr={volume_ratio}"
+                f"prev_close={prev_close} early_high={early_high} pct={early_high_pct:.1f}% vr={volume_ratio}"
             )
 
         except Exception as e:

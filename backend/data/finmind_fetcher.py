@@ -168,11 +168,17 @@ def fetch_1min_kbar(stock_id: str, target_date: date) -> Optional[pd.DataFrame]:
     if df is None or df.empty:
         return df
 
-    # FinMind TaiwanStockKBar 時間在 'minute' 欄位，不是 'date'
-    time_col = "minute" if "minute" in df.columns else "date"
-    df["datetime"] = pd.to_datetime(df[time_col])
-    df["date"]     = df["datetime"].dt.date
-    df["time"]     = df["datetime"].dt.time
+    # FinMind TaiwanStockKBar 時間在 'minute' 欄位
+    # 直接指定 target_date，不從 minute 推日期（避免補成執行當天日期）
+    if "minute" in df.columns:
+        df["date"] = target_date
+        df["time"] = pd.to_datetime(
+            df["minute"].astype(str), format="%H:%M:%S", errors="coerce"
+        ).dt.time
+    else:
+        df["datetime"] = pd.to_datetime(df["date"])
+        df["date"]     = df["datetime"].dt.date
+        df["time"]     = df["datetime"].dt.time
     df["stock_id"] = stock_id
 
     rename = {}
@@ -218,6 +224,7 @@ def fetch_candidates(
         df["prev_close"] = df["close"]
 
     mask = (
+        df["stock_id"].astype(str).str.fullmatch(r"\d{4}", na=False) &
         (df["change_pct"]   >= min_change_pct) &
         (df["volume_zhang"] >= min_volume_zhang)
     )
