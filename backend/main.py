@@ -105,9 +105,17 @@ class AnalyzeRequest(BaseModel):
     min_c31:            Optional[float] = None   # C31 >= X
     min_volume_ratio:   Optional[float] = None   # volume_ratio_at_0910 >= X
     min_early_high_pct: Optional[float] = None   # early_high_pct >= X%
+    # 上界（exclusive）：factor < max_x
+    max_attack_number:  Optional[int]   = None   # attack_number < N
+    max_attack_volume:  Optional[int]   = None   # attack_volume_v1b < N
+    max_c31:            Optional[float] = None   # c31 < X
+    max_volume_ratio:   Optional[float] = None   # volume_ratio < X
+    max_early_high_pct: Optional[float] = None   # early_high_pct < X%
+    # C31 NULL 處理：True = 只計 c31 IS NOT NULL 的樣本
+    require_c31_not_null: bool = False
     attack_version:     str   = "V1"
     outcome_version:    str   = "V1"
-    cutoff:             str   = "09:59"   # 截止時間：09:59 / 11:59 / 13:30
+    cutoff:             str   = "09:59"   # 截止時間：09:59 / 10:29 / 10:59 / 11:29 / 11:59 / 12:29 / 12:59 / 13:30
 
 
 class BacktestRequest(BaseModel):
@@ -454,8 +462,24 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         ("250", "+2.5%"), ("300", "+3.0%"), ("400", "+4.0%"), ("500", "+5.0%"),
     ]
     # cutoff 參數化：前端傳 "09:59"，這裡補秒數
-    cutoff_map = {"09:59": "09:59:00", "11:59": "11:59:00", "13:30": "13:30:00"}
-    CUTOFF = cutoff_map.get(req.cutoff, req.cutoff + ":00" if len(req.cutoff) == 5 else req.cutoff)
+    # 合法 cutoff 值白名單（HH:MM → HH:MM:SS）
+    # 不在白名單的值直接 422，不讓任意字串進 SQL
+    CUTOFF_MAP = {
+        "09:59": "09:59:00",
+        "10:29": "10:29:00",
+        "10:59": "10:59:00",
+        "11:29": "11:29:00",
+        "11:59": "11:59:00",
+        "12:29": "12:29:00",
+        "12:59": "12:59:00",
+        "13:30": "13:30:00",
+    }
+    if req.cutoff not in CUTOFF_MAP:
+        raise HTTPException(
+            status_code=422,
+            detail=f"cutoff '{req.cutoff}' 不在合法值清單：{list(CUTOFF_MAP.keys())}"
+        )
+    CUTOFF = CUTOFF_MAP[req.cutoff]
 
     # TP hit：first_plusXXX_time 在 cutoff 前觸及
     tp_select = ", ".join([
@@ -495,6 +519,25 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
     if req.min_early_high_pct is not None:
         filters.append("dc.early_high_pct >= :min_ehpct")
         params["min_ehpct"] = req.min_early_high_pct
+    # max 條件（exclusive upper bound：factor < max）
+    if req.max_attack_number  is not None:
+        filters.append("ae.attack_number < :max_atk_num")
+        params["max_atk_num"] = req.max_attack_number
+    if req.max_attack_volume  is not None:
+        filters.append("ae.attack_volume_v1b < :max_atk_vol")
+        params["max_atk_vol"] = req.max_attack_volume
+    if req.max_c31            is not None:
+        filters.append("ae.c31 < :max_c31")
+        params["max_c31"] = req.max_c31
+    if req.max_volume_ratio   is not None:
+        filters.append("COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) < :max_vr")
+        params["max_vr"] = req.max_volume_ratio
+    if req.max_early_high_pct is not None:
+        filters.append("dc.early_high_pct < :max_ehpct")
+        params["max_ehpct"] = req.max_early_high_pct
+    # C31 NULL 過濾：True = 分母只計 c31 IS NOT NULL 的樣本
+    if req.require_c31_not_null:
+        filters.append("ae.c31 IS NOT NULL")
 
     where_clause = " AND ".join(filters)
 

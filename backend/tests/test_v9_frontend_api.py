@@ -282,6 +282,101 @@ def test_t55_analyze_request_has_cutoff():
 # 執行
 # ────────────────────────────────────────────────────────────
 
+def test_t59_invalid_cutoff_rejected():
+    """
+    不在白名單的 cutoff 值（如 '09:00'、'abc'）應被後端拒絕（HTTPException 422）。
+    合法值必須全在 CUTOFF_MAP 白名單內。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+5000]
+
+    # 必須有白名單檢查
+    assert "CUTOFF_MAP" in src, "analyze 應有 CUTOFF_MAP 白名單"
+    assert "HTTPException" in src or "raise" in src, "非法 cutoff 應被拒絕"
+    assert "422" in src or "status_code" in src, "應回傳 422"
+
+    # 確認不再有舊的 fallback（直接接受任意字串）
+    assert 'req.cutoff + ":00"' not in src, (
+        "不應有 fallback 讓任意字串進 SQL，必須用白名單驗證"
+    )
+    print("✓ T59 PASS — 非法 cutoff 值被 422 拒絕，不進 SQL")
+    print("   合法值：09:59 / 10:29 / 10:59 / 11:29 / 11:59 / 12:29 / 12:59 / 13:30")
+
+
+def test_t56_bucket_exclusive_upper_bound():
+    """
+    max_attack_number=2 必須是 attack_number < 2（exclusive），
+    所以 attack_number=2 不得進入 =1 的 bucket。
+    驗證：main.py analyze 的 max 條件用 < 不用 <=。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+5000]
+
+    # 必須用 < 不是 <=
+    assert "attack_number < :max_atk_num" in src, (
+        "max_attack_number 條件必須用 < (exclusive)，不用 <="
+    )
+    assert "attack_volume_v1b < :max_atk_vol" in src
+    assert "early_high_pct < :max_ehpct" in src
+    assert "volume_ratio) < :max_vr" in src or "volume_ratio < :max_vr" in src
+    assert "ae.c31 < :max_c31" in src
+
+    # 不得出現 <= 的 max 條件
+    assert "attack_number <= :max_atk_num" not in src, (
+        "max 條件不得用 <=，必須用 < (exclusive upper bound)"
+    )
+    print("✓ T56 PASS — max_* 條件全部使用 < (exclusive upper bound)")
+    print("   attack_number=2 不會進入 min=1,max=2 的 bucket")
+
+
+def test_t57_require_c31_not_null():
+    """
+    require_c31_not_null=True 時，SQL filters 加上 ae.c31 IS NOT NULL。
+    C31=NULL 的樣本不得計入分母。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+5000]
+
+    assert "require_c31_not_null" in src, (
+        "analyze 應支援 require_c31_not_null 參數"
+    )
+    assert "ae.c31 IS NOT NULL" in src, (
+        "require_c31_not_null=True 時應加入 ae.c31 IS NOT NULL 過濾"
+    )
+    print("✓ T57 PASS — require_c31_not_null=True 時 C31=NULL 不計入分母")
+    print("   C31 bucket scan 以有值樣本為 baseline，不與全體 N=1025 比較")
+
+
+def test_t58_cutoff_not_broken_by_max():
+    """
+    加入 max_* 條件後，cutoff 和 denominator 邏輯不得被破壞。
+    entry_time <= cutoff 的過濾必須仍然存在。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+5000]
+
+    # denominator 仍然有 entry_time <= cutoff
+    assert "entry_time" in src and ":cutoff" in src, (
+        "加入 max_* 後，entry_time <= cutoff 的 denominator 過濾不得消失"
+    )
+    # TP numerator 仍然有 first_plusXXX_time <= cutoff
+    assert "first_plus" in src and "CAST(:cutoff AS TIME)" in src, (
+        "加入 max_* 後，TP numerator 的 cutoff 過濾不得消失"
+    )
+    # max 條件是獨立的 if block，不影響 cutoff
+    assert "if req.max_attack_number" in src, "max_attack_number 應在獨立 if block"
+    print("✓ T58 PASS — max_* 條件不影響 cutoff/denominator 邏輯")
+    print("   entry_time <= cutoff 和 first_plusXXX <= cutoff 均完整保留")
+
+
 def run_all():
     tests = [
         test_t45_frontend_no_cost_in_body,
@@ -295,6 +390,10 @@ def run_all():
         test_t53_price_pct_at_0910_removed,
         test_t54_analyze_denominator_cutoff,
         test_t55_analyze_request_has_cutoff,
+        test_t59_invalid_cutoff_rejected,
+        test_t56_bucket_exclusive_upper_bound,
+        test_t57_require_c31_not_null,
+        test_t58_cutoff_not_broken_by_max,
     ]
     passed = failed = 0
     print("=" * 60)

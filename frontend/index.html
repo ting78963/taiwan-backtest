@@ -447,6 +447,19 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <option value="next_close">next_close</option>
           </select>
         </div>
+        <div class="fg">
+          <label>觀察截止時間</label>
+          <select id="az-cutoff">
+            <option value="09:59">09:59（10:00前）</option>
+            <option value="10:29">10:29（10:30前）</option>
+            <option value="10:59">10:59（11:00前）</option>
+            <option value="11:29">11:29（11:30前）</option>
+            <option value="11:59">11:59（12:00前）</option>
+            <option value="12:29">12:29（12:30前）</option>
+            <option value="12:59">12:59（13:00前）</option>
+            <option value="13:30">13:30（收盤）</option>
+          </select>
+        </div>
       </div>
       <hr class="divider">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">五項研究條件（留空 = 不篩選）</div>
@@ -489,8 +502,17 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
   <div class="panel" style="margin-top:16px">
     <div class="panel-header"><span>📈</span><span class="panel-title">單因子掃描</span></div>
     <div class="panel-body">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-        選擇一個因子，自動掃描各門檻下的達成率。日期、entry_mode、cutoff 沿用上方設定。其餘四項固定為「不限」。
+      <!-- 掃描模式 tab -->
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button id="scan-tab-threshold" class="btn btn-sm"
+                style="background:var(--accent);color:#fff"
+                onclick="setScanMode('threshold')">累積門檻 ≥</button>
+        <button id="scan-tab-bucket" class="btn btn-sm"
+                style="background:var(--s2)"
+                onclick="setScanMode('bucket')">區間分箱 [a,b)</button>
+        <span id="scan-mode-label" style="font-size:11px;color:var(--muted);align-self:center">
+          模式：累積門檻（factor ≥ threshold）
+        </span>
       </div>
       <div class="form-grid" style="margin-bottom:12px">
         <div class="fg">
@@ -737,12 +759,13 @@ function initAnalyze() {
 }
 
 async function runAnalyze() {
-  const from  = document.getElementById('az-from').value;
-  const to    = document.getElementById('az-to').value;
-  const entry = document.getElementById('az-entry').value;
+  const from   = document.getElementById('az-from').value;
+  const to     = document.getElementById('az-to').value;
+  const entry  = document.getElementById('az-entry').value;
+  const cutoff = document.getElementById('az-cutoff').value;
   if(!from || !to) { alert('請選擇日期範圍'); return; }
 
-  const body = { date_from: from, date_to: to, entry_mode: entry };
+  const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
 
   const atkNum = document.getElementById('az-atk-num').value;
   const atkVol = document.getElementById('az-atk-vol').value;
@@ -813,6 +836,87 @@ function renderAnalyzeResult(data) {
 }
 
 // ─── 單因子掃描 ──────────────────────────────────────────────
+// 掃描模式：threshold（累積門檻）或 bucket（區間分箱）
+let scanMode = 'threshold';
+
+function setScanMode(mode) {
+  scanMode = mode;
+  const isT = mode === 'threshold';
+  document.getElementById('scan-tab-threshold').style.background = isT ? 'var(--accent)' : 'var(--s2)';
+  document.getElementById('scan-tab-threshold').style.color      = isT ? '#fff' : '';
+  document.getElementById('scan-tab-bucket').style.background    = !isT ? 'var(--accent)' : 'var(--s2)';
+  document.getElementById('scan-tab-bucket').style.color         = !isT ? '#fff' : '';
+  document.getElementById('scan-mode-label').textContent =
+    isT ? '模式：累積門檻（factor ≥ threshold）' : '模式：區間分箱（lower ≤ factor < upper）';
+  document.getElementById('scan-result').style.display = 'none';
+}
+
+// ── 區間分箱定義（exclusive upper bound：lower <= x < upper）──────────
+const SCAN_BUCKETS = {
+  attack_number: {
+    label: 'Attack Number（攻擊次數）',
+    c31_mode: false,
+    buckets: [
+      { lower: 1, upper: 2,    label: '=1',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 2, upper: 3,    label: '=2',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 3, upper: 4,    label: '=3',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 4, upper: 5,    label: '=4',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 5, upper: 6,    label: '=5',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 6, upper: null, label: '≥6',  min_key: 'min_attack_number', max_key: null },
+    ],
+  },
+  volume_ratio: {
+    label: 'Volume Ratio（量比）',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 0.2, label: '<0.2',     min_key: null,               max_key: 'max_volume_ratio' },
+      { lower: 0.2,  upper: 0.3, label: '0.2～<0.3', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.3,  upper: 0.5, label: '0.3～<0.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.5,  upper: 0.8, label: '0.5～<0.8', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.8,  upper: 1.5, label: '0.8～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.5,  upper: null,label: '≥1.5',     min_key: 'min_volume_ratio', max_key: null },
+    ],
+  },
+  attack_volume: {
+    label: 'Attack Volume V1B（張）',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 100,  label: '<100',        min_key: null,                max_key: 'max_attack_volume' },
+      { lower: 100,  upper: 200,  label: '100～<200',   min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 200,  upper: 500,  label: '200～<500',   min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 500,  upper: 1000, label: '500～<1000',  min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 1000, upper: 2000, label: '1000～<2000', min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 2000, upper: null, label: '≥2000',      min_key: 'min_attack_volume', max_key: null },
+    ],
+  },
+  early_high_pct: {
+    label: 'Early High %（早盤漲幅）',
+    c31_mode: false,
+    buckets: [
+      { lower: 3, upper: 4, label: '3～<4%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 4, upper: 5, label: '4～<5%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 5, upper: 6, label: '5～<6%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 6, upper: 7, label: '6～<7%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 7, upper: 8, label: '7～<8%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 8, upper: 9, label: '8～<9%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 9, upper: null, label: '≥9%', min_key: 'min_early_high_pct', max_key: null },
+    ],
+  },
+  c31: {
+    label: 'C31',
+    c31_mode: true,  // 自動加 require_c31_not_null=true，以有值樣本為 baseline
+    buckets: [
+      { lower: null, upper: 0.1, label: '<0.1',       min_key: null,    max_key: 'max_c31' },
+      { lower: 0.1,  upper: 0.2, label: '0.1～<0.2',  min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 0.2,  upper: 0.5, label: '0.2～<0.5',  min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 0.5,  upper: 1.0, label: '0.5～<1.0',  min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 1.0,  upper: 2.0, label: '1.0～<2.0',  min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 2.0,  upper: 4.0, label: '2.0～<4.0',  min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 4.0,  upper: null,label: '≥4.0',       min_key: 'min_c31', max_key: null },
+    ],
+  },
+};
+
 const SCAN_GRIDS = {
   volume_ratio:   { label: 'Volume Ratio（量比）', key: 'min_volume_ratio',
                     thresholds: [null, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0],
@@ -844,39 +948,118 @@ async function runScan() {
   const from   = document.getElementById('az-from').value;
   const to     = document.getElementById('az-to').value;
   const entry  = document.getElementById('az-entry').value;
-  const cutoff = '09:59';
-
+  const cutoff = document.getElementById('az-cutoff').value;
   if (!from || !to) { alert('請先設定日期範圍'); return; }
 
-  const grid = SCAN_GRIDS[factor];
-  const btn  = document.querySelector('#page-analyze .btn-green:last-of-type');
+  const btn = document.querySelector('#page-analyze .btn-green:last-of-type');
   btn.disabled = true; btn.textContent = '掃描中...';
-
-  document.getElementById('scan-note').textContent = grid.note;
   document.getElementById('scan-result').style.display = 'block';
   document.getElementById('scan-tbody').innerHTML =
-    `<tr><td colspan="10" style="text-align:center;color:var(--muted)">查詢中，請稍候...</td></tr>`;
+    `<tr><td colspan="10" style="text-align:center;color:var(--muted)">查詢中...</td></tr>`;
 
   try {
-    // 並行送出所有 threshold 的請求
-    const requests = grid.thresholds.map(t => {
-      const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
-      if (t !== null) body[grid.key] = t;
-      return fetch(API + '/api/analyze', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(body),
-      }).then(r => r.json());
-    });
+    if (scanMode === 'threshold') {
+      // ── 累積門檻掃描 ────────────────────────────────────
+      const grid = SCAN_GRIDS[factor];
+      document.getElementById('scan-note').textContent = grid.note;
+      const requests = grid.thresholds.map(t => {
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        if (t !== null) body[grid.key] = t;
+        return fetch(API + '/api/analyze', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body),
+        }).then(r => r.json());
+      });
+      const results = await Promise.all(requests);
+      renderScanResult(grid, results);
 
-    const results = await Promise.all(requests);
-    renderScanResult(grid, results);
+    } else {
+      // ── 區間分箱掃描 ────────────────────────────────────
+      const bdef = SCAN_BUCKETS[factor];
+      const isC31 = bdef.c31_mode;
+
+      // C31 模式：先取 valid baseline（require_c31_not_null=true, 無 min/max）
+      let baselineReq = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+      if (isC31) baselineReq.require_c31_not_null = true;
+      const baselineResult = await fetch(API + '/api/analyze', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(baselineReq),
+      }).then(r => r.json());
+
+      // 各 bucket
+      const bucketRequests = bdef.buckets.map(b => {
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        if (b.min_key && b.lower !== null) body[b.min_key] = b.lower;
+        if (b.max_key && b.upper !== null) body[b.max_key] = b.upper;
+        if (isC31) body.require_c31_not_null = true;
+        return fetch(API + '/api/analyze', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body),
+        }).then(r => r.json());
+      });
+      const bucketResults = await Promise.all(bucketRequests);
+
+      const note = isC31
+        ? `⚠️ C31 bucket 以有值樣本為基準（require_c31_not_null=true）。Baseline N=${baselineResult.sample_count}（C31 IS NOT NULL 的有效樣本）。`
+        : bdef.note || '';
+      document.getElementById('scan-note').textContent = note;
+      renderBucketResult(bdef, baselineResult, bucketResults);
+    }
   } catch(e) {
     document.getElementById('scan-tbody').innerHTML =
       `<tr><td colspan="10" style="color:var(--red)">掃描失敗：${e}</td></tr>`;
   } finally {
     btn.disabled = false; btn.textContent = '📈 執行掃描';
   }
+}
+
+function renderBucketResult(bdef, baseline, bucketResults) {
+  const baseN   = baseline.sample_count || 0;
+  const base100 = baseline.matrix?.find(r => r.tp_label === '+1.0%')?.hit_rate_pct || 0;
+
+  const getRate = (d, label) => d.matrix?.find(r => r.tp_label === label)?.hit_rate_pct;
+  const fmt     = v => (v !== undefined && v !== null) ? v.toFixed(1) : '—';
+
+  const tbody = document.getElementById('scan-tbody');
+
+  // Baseline 列
+  const baseRow = `<tr style="background:var(--s2);font-weight:600">
+    <td>Baseline${bdef.c31_mode ? ' (C31 valid)' : ''}</td>
+    <td>${baseN}</td><td>100%</td>
+    <td>${fmt(getRate(baseline,'+0.5%'))}</td>
+    <td>${fmt(getRate(baseline,'+0.75%'))}</td>
+    <td>${fmt(getRate(baseline,'+1.0%'))}</td>
+    <td>${fmt(getRate(baseline,'+1.5%'))}</td>
+    <td>${fmt(getRate(baseline,'+2.0%'))}</td>
+    <td>${fmt(getRate(baseline,'+3.0%'))}</td>
+    <td>—</td>
+  </tr>`;
+
+  const bucketRows = bucketResults.map((d, i) => {
+    const n      = d.sample_count || 0;
+    const retPct = baseN > 0 ? (n / baseN * 100).toFixed(0) + '%' : '—';
+    const cur100 = getRate(d, '+1.0%');
+    let pp = '—';
+    if (cur100 !== undefined && cur100 !== null) {
+      const diff = cur100 - base100;
+      const sign = diff >= 0 ? '+' : '';
+      const col  = diff >= 1 ? 'var(--green)' : diff <= -1 ? 'var(--red)' : 'var(--muted)';
+      pp = `<span style="color:${col}">${sign}${diff.toFixed(1)}pp</span>`;
+    }
+    return `<tr>
+      <td>${bdef.buckets[i].label}</td>
+      <td>${n}</td><td>${retPct}</td>
+      <td>${fmt(getRate(d,'+0.5%'))}</td>
+      <td>${fmt(getRate(d,'+0.75%'))}</td>
+      <td>${fmt(getRate(d,'+1.0%'))}</td>
+      <td>${fmt(getRate(d,'+1.5%'))}</td>
+      <td>${fmt(getRate(d,'+2.0%'))}</td>
+      <td>${fmt(getRate(d,'+3.0%'))}</td>
+      <td>${pp}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = baseRow + bucketRows.join('');
 }
 
 function renderScanResult(grid, results) {
