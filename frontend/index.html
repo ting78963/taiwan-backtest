@@ -1519,8 +1519,7 @@ async function loadOverview(){
     document.getElementById('step2-badge').textContent = (d.attacks||0)+' atk';
 
     // Engine version
-    const v = await fetch(API+'/api/engine/versions').then(r=>r.json());
-    document.getElementById('sys-ver').textContent = 'Engine '+v.system_engine_version;
+    document.getElementById('sys-ver').textContent = 'Engine V1';
   }catch(e){ console.error(e) }
 }
 loadOverview();
