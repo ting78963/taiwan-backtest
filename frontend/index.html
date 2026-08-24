@@ -553,6 +553,56 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       </div>
     </div>
   </div>
+
+  <!-- 雙因子交叉掃描 -->
+  <div class="panel" style="margin-top:16px">
+    <div class="panel-header"><span>🔢</span><span class="panel-title">雙因子交叉掃描</span></div>
+    <div class="panel-body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        選擇兩個因子，產生二維矩陣。日期、entry_mode、cutoff 沿用上方設定。其他三項固定為不限。
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="fg">
+          <label>因子 A（列）</label>
+          <select id="cross-a">
+            <option value="attack_volume">Attack Volume V1B</option>
+            <option value="attack_number">Attack Number</option>
+            <option value="volume_ratio">Volume Ratio</option>
+            <option value="early_high_pct">Early High %</option>
+            <option value="c31">C31</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>因子 B（欄）</label>
+          <select id="cross-b">
+            <option value="volume_ratio">Volume Ratio</option>
+            <option value="attack_volume">Attack Volume V1B</option>
+            <option value="attack_number">Attack Number</option>
+            <option value="early_high_pct">Early High %</option>
+            <option value="c31">C31</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>主要指標</label>
+          <select id="cross-tp">
+            <option value="+1.0%">+1.0%</option>
+            <option value="+0.5%">+0.5%</option>
+            <option value="+0.75%">+0.75%</option>
+            <option value="+1.5%">+1.5%</option>
+            <option value="+2.0%">+2.0%</option>
+            <option value="+3.0%">+3.0%</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-green" onclick="runCross()">🔢 執行交叉掃描</button>
+      </div>
+      <div id="cross-result" style="display:none;margin-top:16px">
+        <div id="cross-note" style="font-size:11px;color:var(--gold);margin-bottom:8px"></div>
+        <div id="cross-table-wrap" style="overflow-x:auto"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ⑤ 結果報表 -->
@@ -1105,6 +1155,188 @@ function renderScanResult(grid, results) {
       <td>${pp}</td>
     </tr>`;
   }).join('');
+}
+
+// ─── 雙因子交叉掃描 ──────────────────────────────────────────────
+// 完全重用 /api/analyze，後端零修改
+// 每格 = 一個 bucket_A × bucket_B 的組合，各自傳 min/max 到 /api/analyze
+
+// 雙因子共用 bucket 定義（與單因子 SCAN_BUCKETS 相同語意）
+const CROSS_BUCKETS = {
+  attack_volume: {
+    label: 'Attack Vol V1B',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 100,  label: '<100',        min_key: null,                max_key: 'max_attack_volume' },
+      { lower: 100,  upper: 200,  label: '100～<200',   min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 200,  upper: 500,  label: '200～<500',   min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 500,  upper: 1000, label: '500～<1000',  min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 1000, upper: 2000, label: '1000～<2000', min_key: 'min_attack_volume', max_key: 'max_attack_volume' },
+      { lower: 2000, upper: null, label: '≥2000',       min_key: 'min_attack_volume', max_key: null },
+    ],
+  },
+  attack_number: {
+    label: 'Attack #',
+    c31_mode: false,
+    buckets: [
+      { lower: 1, upper: 2,    label: '=1',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 2, upper: 3,    label: '=2',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 3, upper: 4,    label: '=3',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 4, upper: 5,    label: '=4',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 5, upper: 6,    label: '=5',  min_key: 'min_attack_number', max_key: 'max_attack_number' },
+      { lower: 6, upper: null, label: '≥6',  min_key: 'min_attack_number', max_key: null },
+    ],
+  },
+  volume_ratio: {
+    label: 'Vol Ratio',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 0.2, label: '<0.2',     min_key: null,               max_key: 'max_volume_ratio' },
+      { lower: 0.2,  upper: 0.3, label: '0.2～<0.3', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.3,  upper: 0.5, label: '0.3～<0.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.5,  upper: 0.8, label: '0.5～<0.8', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 0.8,  upper: 1.5, label: '0.8～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.5,  upper: null,label: '≥1.5',     min_key: 'min_volume_ratio', max_key: null },
+    ],
+  },
+  early_high_pct: {
+    label: 'Early High%',
+    c31_mode: false,
+    buckets: [
+      { lower: 3, upper: 4, label: '3～<4%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 4, upper: 5, label: '4～<5%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 5, upper: 6, label: '5～<6%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 6, upper: 7, label: '6～<7%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 7, upper: 8, label: '7～<8%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 8, upper: 9, label: '8～<9%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
+      { lower: 9, upper: null, label: '≥9%', min_key: 'min_early_high_pct', max_key: null },
+    ],
+  },
+  c31: {
+    label: 'C31',
+    c31_mode: true,
+    buckets: [
+      { lower: null, upper: 0.1, label: '<0.1',      min_key: null,      max_key: 'max_c31' },
+      { lower: 0.1,  upper: 0.2, label: '0.1～<0.2', min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 0.2,  upper: 0.5, label: '0.2～<0.5', min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 0.5,  upper: 1.0, label: '0.5～<1.0', min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 1.0,  upper: 2.0, label: '1.0～<2.0', min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 2.0,  upper: 4.0, label: '2.0～<4.0', min_key: 'min_c31', max_key: 'max_c31' },
+      { lower: 4.0,  upper: null,label: '≥4.0',      min_key: 'min_c31', max_key: null },
+    ],
+  },
+};
+
+async function runCross() {
+  const factorA = document.getElementById('cross-a').value;
+  const factorB = document.getElementById('cross-b').value;
+  const tpLabel = document.getElementById('cross-tp').value;
+  const from    = document.getElementById('az-from').value;
+  const to      = document.getElementById('az-to').value;
+  const entry   = document.getElementById('az-entry').value;
+  const cutoff  = document.getElementById('az-cutoff').value;   // 讀 az-cutoff，不寫死
+
+  if (!from || !to) { alert('請先設定日期範圍'); return; }
+  if (factorA === factorB) { alert('請選擇不同的兩個因子'); return; }
+
+  const defA = CROSS_BUCKETS[factorA];
+  const defB = CROSS_BUCKETS[factorB];
+  const isC31 = defA.c31_mode || defB.c31_mode;
+
+  const btn = document.querySelector('#cross-result').previousElementSibling.querySelector('.btn-green');
+  btn.disabled = true; btn.textContent = '掃描中...';
+  document.getElementById('cross-result').style.display = 'block';
+  document.getElementById('cross-note').textContent = isC31
+    ? '⚠️ 包含 C31 因子：自動使用 require_c31_not_null=true，以有值樣本為準。'
+    : '';
+  document.getElementById('cross-table-wrap').innerHTML =
+    '<div style="text-align:center;color:var(--muted)">查詢中，請稍候...</div>';
+
+  try {
+    // 先取 Baseline（無任何條件）
+    const baseBody = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+    if (isC31) baseBody.require_c31_not_null = true;
+    const baseResult = await fetch(API + '/api/analyze', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(baseBody),
+    }).then(r => r.json());
+
+    const baseN    = baseResult.sample_count || 0;
+    const baseRate = baseResult.matrix?.find(r => r.tp_label === tpLabel)?.hit_rate_pct || 0;
+
+    // 送出所有 A×B 組合（並行）
+    const requests = [];
+    for (const bA of defA.buckets) {
+      for (const bB of defB.buckets) {
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        if (isC31) body.require_c31_not_null = true;
+        if (bA.min_key && bA.lower !== null) body[bA.min_key] = bA.lower;
+        if (bA.max_key && bA.upper !== null) body[bA.max_key] = bA.upper;
+        if (bB.min_key && bB.lower !== null) body[bB.min_key] = bB.lower;
+        if (bB.max_key && bB.upper !== null) body[bB.max_key] = bB.upper;
+        requests.push(
+          fetch(API + '/api/analyze', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body),
+          }).then(r => r.json())
+        );
+      }
+    }
+    const results = await Promise.all(requests);
+    renderCrossResult(defA, defB, tpLabel, baseN, baseRate, results);
+  } catch(e) {
+    document.getElementById('cross-table-wrap').innerHTML =
+      `<div style="color:var(--red)">掃描失敗：${e}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '🔢 執行交叉掃描';
+  }
+}
+
+function renderCrossResult(defA, defB, tpLabel, baseN, baseRate, results) {
+  const nB = defB.buckets.length;
+  const getRate = (d) => d.matrix?.find(r => r.tp_label === tpLabel)?.hit_rate_pct;
+  const fmt     = v => (v !== undefined && v !== null) ? v.toFixed(1) : '—';
+
+  // 表頭
+  let html = `<table class="data-table" style="width:100%;min-width:600px">
+  <thead><tr>
+    <th>${defA.label} \ ${defB.label}</th>
+    ${defB.buckets.map(b => `<th>${b.label}</th>`).join('')}
+  </tr></thead><tbody>`;
+
+  // 每列 = defA 的一個 bucket
+  defA.buckets.forEach((bA, iA) => {
+    html += `<tr><td style="font-weight:600">${bA.label}</td>`;
+    defB.buckets.forEach((bB, iB) => {
+      const d   = results[iA * nB + iB];
+      const n   = d?.sample_count || 0;
+      const rt  = getRate(d);
+      const pp  = (rt !== undefined && rt !== null) ? (rt - baseRate) : null;
+      const ppStr = pp !== null
+        ? `<span style="font-size:10px;color:${pp >= 1 ? 'var(--green)' : pp <= -1 ? 'var(--red)' : 'var(--muted)'}">${pp >= 0 ? '+' : ''}${pp.toFixed(1)}pp</span>`
+        : '';
+      // 背景色：依 pp 深淺
+      const bg = pp === null ? '' :
+                 pp >= 5    ? 'background:rgba(0,200,100,0.25)' :
+                 pp >= 2    ? 'background:rgba(0,200,100,0.12)' :
+                 pp <= -5   ? 'background:rgba(255,80,80,0.25)' :
+                 pp <= -2   ? 'background:rgba(255,80,80,0.12)' : '';
+      html += `<td style="text-align:center;${bg}">
+        <div style="font-size:13px;font-weight:600">${fmt(rt)}%</div>
+        <div style="font-size:10px;color:var(--muted)">N=${n}</div>
+        <div>${ppStr}</div>
+      </td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += `</tbody></table>
+  <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+    主要指標：${tpLabel}　Baseline N=${baseN}，${tpLabel}=${baseRate.toFixed(1)}%　
+    顏色：綠=提升 ≥2pp，紅=下降 ≥2pp
+  </div>`;
+
+  document.getElementById('cross-table-wrap').innerHTML = html;
 }
 
 // ─── Checkbox sync ────────────────────────────────────────
