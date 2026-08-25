@@ -464,11 +464,51 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
       <hr class="divider">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">五項研究條件（留空 = 不篩選）</div>
       <div class="form-grid">
-        <div class="fg"><label>Attack 次數 ≥</label><input type="number" id="az-atk-num" placeholder="例：3" min="1" step="1"></div>
-        <div class="fg"><label>Attack Volume V1B ≥（張）</label><input type="number" id="az-atk-vol" placeholder="例：500" min="0" step="100"></div>
-        <div class="fg"><label>C31 ≥</label><input type="number" id="az-c31" placeholder="例：0.8" step="0.1"></div>
-        <div class="fg"><label>量比 ≥</label><input type="number" id="az-vr" placeholder="例：2.0" step="0.5"></div>
-        <div class="fg"><label>早盤漲幅 ≥ (%)</label><input type="number" id="az-pct" placeholder="例：4" step="0.5"></div>
+        <div class="fg" style="grid-column:span 2">
+          <label>Attack 次數</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-atk-num" placeholder="Min" min="1" step="1" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-atk-num-max" placeholder="Max" min="1" step="1" style="flex:1">
+          </div>
+        </div>
+        <div class="fg" style="grid-column:span 2">
+          <label>Attack Volume V1B（張）</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-atk-vol" placeholder="Min" min="0" step="100" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-atk-vol-max" placeholder="Max" min="0" step="100" style="flex:1">
+          </div>
+        </div>
+        <div class="fg" style="grid-column:span 2">
+          <label>C31</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-c31" placeholder="Min" step="0.1" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-c31-max" placeholder="Max" step="0.1" style="flex:1">
+          </div>
+        </div>
+        <div class="fg" style="grid-column:span 2">
+          <label>量比（Volume Ratio）</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-vr" placeholder="Min" step="0.1" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-vr-max" placeholder="Max" step="0.1" style="flex:1">
+          </div>
+        </div>
+        <div class="fg" style="grid-column:span 2">
+          <label>早盤漲幅 %（Early High）</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-pct" placeholder="Min" step="0.5" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-pct-max" placeholder="Max" step="0.5" style="flex:1">
+          </div>
+        </div>
       </div>
       <div class="btn-row">
         <button id="btn-analyze" class="btn btn-green" onclick="runAnalyze()">🔬 分析</button>
@@ -903,18 +943,27 @@ const FACTOR_MIN_KEY = {
 //      runCross(A='early_high_pct', B='volume_ratio') → excludeFactors=['early_high_pct','volume_ratio']
 //      runAnalyze() → excludeFactors=[]
 function buildBaseParams(excludeFactors = []) {
+  // 每個因子同時處理 Min + Max
+  // 正在被掃描的因子：Min 和 Max 都排除，由 scan/bucket 完整接管
   const p = {};
   const vals = {
-    attack_number:  { key: 'min_attack_number',  el: 'az-atk-num', parse: parseInt   },
-    attack_volume:  { key: 'min_attack_volume',  el: 'az-atk-vol', parse: parseInt   },
-    c31:            { key: 'min_c31',            el: 'az-c31',     parse: parseFloat },
-    volume_ratio:   { key: 'min_volume_ratio',   el: 'az-vr',      parse: parseFloat },
-    early_high_pct: { key: 'min_early_high_pct', el: 'az-pct',     parse: parseFloat },
+    attack_number:  { minKey: 'min_attack_number',  maxKey: 'max_attack_number',
+                      minEl: 'az-atk-num',     maxEl: 'az-atk-num-max', parse: parseInt   },
+    attack_volume:  { minKey: 'min_attack_volume',  maxKey: 'max_attack_volume',
+                      minEl: 'az-atk-vol',     maxEl: 'az-atk-vol-max', parse: parseInt   },
+    c31:            { minKey: 'min_c31',            maxKey: 'max_c31',
+                      minEl: 'az-c31',          maxEl: 'az-c31-max',     parse: parseFloat },
+    volume_ratio:   { minKey: 'min_volume_ratio',   maxKey: 'max_volume_ratio',
+                      minEl: 'az-vr',           maxEl: 'az-vr-max',      parse: parseFloat },
+    early_high_pct: { minKey: 'min_early_high_pct', maxKey: 'max_early_high_pct',
+                      minEl: 'az-pct',          maxEl: 'az-pct-max',     parse: parseFloat },
   };
   for (const [factor, cfg] of Object.entries(vals)) {
-    if (excludeFactors.includes(factor)) continue;  // 正在掃描的因子，排除固定條件
-    const v = document.getElementById(cfg.el)?.value;
-    if (v) p[cfg.key] = cfg.parse(v);
+    if (excludeFactors.includes(factor)) continue;  // 正在掃描的因子：min + max 都排除
+    const minV = document.getElementById(cfg.minEl)?.value;
+    const maxV = document.getElementById(cfg.maxEl)?.value;
+    if (minV) p[cfg.minKey] = cfg.parse(minV);
+    if (maxV) p[cfg.maxKey] = cfg.parse(maxV);
   }
   return p;
 }
@@ -936,34 +985,46 @@ let lastCrossCondition   = null;
 
 function getConditionSnapshot() {
   const c = {
-    from:   document.getElementById('az-from').value,
-    to:     document.getElementById('az-to').value,
-    entry:  document.getElementById('az-entry').value,
-    cutoff: document.getElementById('az-cutoff').value,
-    atkNum: document.getElementById('az-atk-num').value,
-    atkVol: document.getElementById('az-atk-vol').value,
-    c31:    document.getElementById('az-c31').value,
-    vr:     document.getElementById('az-vr').value,
-    pct:    document.getElementById('az-pct').value,
+    from:      document.getElementById('az-from').value,
+    to:        document.getElementById('az-to').value,
+    entry:     document.getElementById('az-entry').value,
+    cutoff:    document.getElementById('az-cutoff').value,
+    atkNum:    document.getElementById('az-atk-num').value,
+    atkNumMax: document.getElementById('az-atk-num-max').value,
+    atkVol:    document.getElementById('az-atk-vol').value,
+    atkVolMax: document.getElementById('az-atk-vol-max').value,
+    c31:       document.getElementById('az-c31').value,
+    c31Max:    document.getElementById('az-c31-max').value,
+    vr:        document.getElementById('az-vr').value,
+    vrMax:     document.getElementById('az-vr-max').value,
+    pct:       document.getElementById('az-pct').value,
+    pctMax:    document.getElementById('az-pct-max').value,
   };
   return c;
 }
 
 function conditionSummary(c, extra) {
   const parts = [`${c.from}～${c.to}`, c.entry, cutoffLabel(c.cutoff)];
-  if (c.atkNum) parts.push(`Attack#≥${c.atkNum}`);
-  if (c.atkVol) parts.push(`AtkVol≥${c.atkVol}`);
-  if (c.c31)    parts.push(`C31≥${c.c31}`);
-  if (c.vr)     parts.push(`VR≥${c.vr}`);
-  if (c.pct)    parts.push(`Early≥${c.pct}%`);
-  if (extra)    parts.push(extra);
+  const rng = (min, max, unit='') => {
+    if (min && max) return `${min}–<${max}${unit}`;
+    if (min) return `≥${min}${unit}`;
+    if (max) return `<${max}${unit}`;
+    return null;
+  };
+  const atk  = rng(c.atkNum, c.atkNumMax);     if (atk)  parts.push(`Attack#${atk}`);
+  const avol = rng(c.atkVol, c.atkVolMax,'張'); if (avol) parts.push(`AtkVol${avol}`);
+  const c31  = rng(c.c31,    c.c31Max);          if (c31)  parts.push(`C31${c31}`);
+  const vr   = rng(c.vr,     c.vrMax);           if (vr)   parts.push(`VR${vr}`);
+  const pct  = rng(c.pct,    c.pctMax,'%');      if (pct)  parts.push(`Early${pct}`);
+  if (extra) parts.push(extra);
   return parts.join('　');
 }
 
 function isStale(last, current) {
   if (!last) return false;
-  // 只比較影響研究結果的條件
-  return ['from','to','entry','cutoff','atkNum','atkVol','c31','vr','pct'].some(
+  return ['from','to','entry','cutoff',
+          'atkNum','atkNumMax','atkVol','atkVolMax',
+          'c31','c31Max','vr','vrMax','pct','pctMax'].some(
     k => last[k] !== current[k]
   );
 }
@@ -986,7 +1047,11 @@ function showSnapshot(snapshotId, label, c, extra) {
 
 // ─── 監聽研究條件變更，標示 stale ───────────────────────────────
 ['az-from','az-to','az-entry','az-cutoff',
- 'az-atk-num','az-atk-vol','az-c31','az-vr','az-pct'].forEach(id => {
+ 'az-atk-num','az-atk-num-max',
+ 'az-atk-vol','az-atk-vol-max',
+ 'az-c31','az-c31-max',
+ 'az-vr','az-vr-max',
+ 'az-pct','az-pct-max'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('change', () => {
