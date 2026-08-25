@@ -818,19 +818,9 @@ async function runAnalyze() {
   const cutoff = document.getElementById('az-cutoff').value;
   if(!from || !to) { alert('請選擇日期範圍'); return; }
 
-  const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
-
-  const atkNum = document.getElementById('az-atk-num').value;
-  const atkVol = document.getElementById('az-atk-vol').value;
-  const c31    = document.getElementById('az-c31').value;
-  const vr     = document.getElementById('az-vr').value;
-  const pct    = document.getElementById('az-pct').value;
-
-  if(atkNum) body.min_attack_number  = parseInt(atkNum);
-  if(atkVol) body.min_attack_volume  = parseInt(atkVol);
-  if(c31)    body.min_c31            = parseFloat(c31);
-  if(vr)     body.min_volume_ratio   = parseFloat(vr);
-  if(pct)    body.min_early_high_pct = parseFloat(pct);
+  // buildBaseParams([])：不排除任何因子，全部固定條件帶入
+  const body = { date_from: from, date_to: to, entry_mode: entry, cutoff,
+                 ...buildBaseParams([]) };
 
   const btn = document.getElementById('btn-analyze');
   btn.disabled = true; btn.textContent = '分析中...';
@@ -896,6 +886,39 @@ function renderAnalyzeResult(data) {
 }
 
 // ─── 單因子掃描 ──────────────────────────────────────────────
+// ─── Factor → min_key 對應（用於 excludeFactors 排除邏輯）──────────
+// 每個 factor 值對應的「固定條件 min_key」
+// 當該 factor 是本次掃描目標時，對應的固定條件必須排除
+const FACTOR_MIN_KEY = {
+  attack_number:  'min_attack_number',
+  attack_volume:  'min_attack_volume',
+  c31:            'min_c31',
+  volume_ratio:   'min_volume_ratio',
+  early_high_pct: 'min_early_high_pct',
+};
+
+// ─── buildBaseParams：讀取五項固定條件，排除正在掃描的因子 ───────
+// excludeFactors: 目前正在掃描的因子 key 清單，對應的固定條件不帶入
+// 例如 runScan(factor='volume_ratio') → excludeFactors=['volume_ratio']
+//      runCross(A='early_high_pct', B='volume_ratio') → excludeFactors=['early_high_pct','volume_ratio']
+//      runAnalyze() → excludeFactors=[]
+function buildBaseParams(excludeFactors = []) {
+  const p = {};
+  const vals = {
+    attack_number:  { key: 'min_attack_number',  el: 'az-atk-num', parse: parseInt   },
+    attack_volume:  { key: 'min_attack_volume',  el: 'az-atk-vol', parse: parseInt   },
+    c31:            { key: 'min_c31',            el: 'az-c31',     parse: parseFloat },
+    volume_ratio:   { key: 'min_volume_ratio',   el: 'az-vr',      parse: parseFloat },
+    early_high_pct: { key: 'min_early_high_pct', el: 'az-pct',     parse: parseFloat },
+  };
+  for (const [factor, cfg] of Object.entries(vals)) {
+    if (excludeFactors.includes(factor)) continue;  // 正在掃描的因子，排除固定條件
+    const v = document.getElementById(cfg.el)?.value;
+    if (v) p[cfg.key] = cfg.parse(v);
+  }
+  return p;
+}
+
 // ─── cutoff → 顯示標籤 ─────────────────────────────────────────
 // UI 顯示 cutoff 的「下一分鐘」作為「XX:XX 前」
 const CUTOFF_DISPLAY = {
@@ -1103,8 +1126,10 @@ async function runScan() {
       // ── 累積門檻掃描 ────────────────────────────────────
       const grid = SCAN_GRIDS[factor];
       document.getElementById('scan-note').textContent = grid.note;
+      // excludeFactors=[factor]：排除正在掃描因子的固定條件，由掃描門檻接管
+      const baseFixed = buildBaseParams([factor]);
       const requests = grid.thresholds.map(t => {
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed };
         if (t !== null) body[grid.key] = t;
         return fetch(API + '/api/analyze', {
           method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1121,17 +1146,19 @@ async function runScan() {
       const bdef = SCAN_BUCKETS[factor];
       const isC31 = bdef.c31_mode;
 
-      // C31 模式：先取 valid baseline（require_c31_not_null=true, 無 min/max）
-      let baselineReq = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+      // excludeFactors=[factor]：排除正在掃描因子的固定條件
+      const baseFixed2 = buildBaseParams([factor]);
+      // Baseline：固定條件（排除掃描因子） + C31 valid filter（若 C31 是掃描因子則排除）
+      let baselineReq = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed2 };
       if (isC31) baselineReq.require_c31_not_null = true;
       const baselineResult = await fetch(API + '/api/analyze', {
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify(baselineReq),
       }).then(r => r.json());
 
-      // 各 bucket
+      // 各 bucket：同樣基底 + bucket 自身的 min/max
       const bucketRequests = bdef.buckets.map(b => {
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed2 };
         if (b.min_key && b.lower !== null) body[b.min_key] = b.lower;
         if (b.max_key && b.upper !== null) body[b.max_key] = b.upper;
         if (isC31) body.require_c31_not_null = true;
@@ -1348,8 +1375,13 @@ async function runCross() {
     '<div style="text-align:center;color:var(--muted)">查詢中，請稍候...</div>';
 
   try {
-    // 先取 Baseline（無任何條件）
-    const baseBody = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+    // excludeFactors=[factorA, factorB]：排除正在掃描兩個因子的固定條件
+    // 讓 bucket min/max 完整接管這兩個因子，避免固定條件與 bucket 衝突
+    const crossFixed = buildBaseParams([factorA, factorB]);
+
+    // Baseline：只帶固定控制條件（不含 A/B 因子的限制）
+    // 這樣 pp uplift 的比較基準才是正確的「同控制條件母體」
+    const baseBody = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...crossFixed };
     if (isC31) baseBody.require_c31_not_null = true;
     const baseResult = await fetch(API + '/api/analyze', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1374,7 +1406,8 @@ async function runCross() {
       const batch = cells.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async ({ bA, bB }, j) => {
         const idx  = i + j;
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff };
+        // Cell body = 固定控制條件（排除A/B）+ bucket A 的 min/max + bucket B 的 min/max
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...crossFixed };
         if (isC31) body.require_c31_not_null = true;
         if (bA.min_key && bA.lower !== null) body[bA.min_key] = bA.lower;
         if (bA.max_key && bA.upper !== null) body[bA.max_key] = bA.upper;
