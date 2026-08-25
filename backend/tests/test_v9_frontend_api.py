@@ -305,7 +305,29 @@ def test_t59_invalid_cutoff_rejected():
     print("   合法值：09:59 / 10:29 / 10:59 / 11:29 / 11:59 / 12:29 / 12:59 / 13:30")
 
 
-def test_t56_bucket_exclusive_upper_bound():
+def test_t56_sum_null_zero_sample():
+    """
+    Regression test：當 bucket 條件極窄導致有效樣本 = 0 時，
+    PostgreSQL SUM() 回傳 NULL，int(NULL) 會 TypeError 500。
+    修正後 int(row[2+i] or 0) 必須正常回傳 hit=0，不得 500。
+    驗證 main.py 的 hit 計算有 or 0 保護。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    idx = main_src.find("def analyze(")
+    end = main_src.find("\n@app.", idx + 10)
+    src = main_src[idx:end] if end > 0 else main_src[idx:idx+5000]
+
+    assert "int(row[2 + i] or 0)" in src, (
+        "hit 計算必須用 int(row[2+i] or 0)，防止 SUM() 回傳 NULL 時 TypeError 500。"
+        " 極窄 bucket 在零樣本時 PostgreSQL SUM 回傳 NULL 而非 0。"
+    )
+    # 確認 or 0 保護在 int 計算裡（間接驗證沒有裸 int(row[2+i])）
+    assert src.count("int(row[2 + i] or 0)") >= 1, "or 0 保護必須存在"
+    print("✓ T56 PASS — int(row[2+i] or 0) 零樣本 NULL 保護存在")
+    print("   SUM() 在零樣本時回傳 NULL → or 0 → int(0) → hit=0，不 500")
+
+
+def test_t57_bucket_exclusive_upper_bound():
     """
     max_attack_number=2 必須是 attack_number < 2（exclusive），
     所以 attack_number=2 不得進入 =1 的 bucket。
@@ -333,7 +355,7 @@ def test_t56_bucket_exclusive_upper_bound():
     print("   attack_number=2 不會進入 min=1,max=2 的 bucket")
 
 
-def test_t57_require_c31_not_null():
+def test_t58_require_c31_not_null():
     """
     require_c31_not_null=True 時，SQL filters 加上 ae.c31 IS NOT NULL。
     C31=NULL 的樣本不得計入分母。
@@ -353,7 +375,7 @@ def test_t57_require_c31_not_null():
     print("   C31 bucket scan 以有值樣本為 baseline，不與全體 N=1025 比較")
 
 
-def test_t58_cutoff_not_broken_by_max():
+def test_t59_cutoff_not_broken_by_max():
     """
     加入 max_* 條件後，cutoff 和 denominator 邏輯不得被破壞。
     entry_time <= cutoff 的過濾必須仍然存在。
@@ -391,9 +413,10 @@ def run_all():
         test_t54_analyze_denominator_cutoff,
         test_t55_analyze_request_has_cutoff,
         test_t59_invalid_cutoff_rejected,
-        test_t56_bucket_exclusive_upper_bound,
-        test_t57_require_c31_not_null,
-        test_t58_cutoff_not_broken_by_max,
+        test_t56_sum_null_zero_sample,
+        test_t57_bucket_exclusive_upper_bound,
+        test_t58_require_c31_not_null,
+        test_t59_cutoff_not_broken_by_max,
     ]
     passed = failed = 0
     print("=" * 60)

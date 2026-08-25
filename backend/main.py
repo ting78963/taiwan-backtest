@@ -565,7 +565,7 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
 
     matrix = []
     for i, (k, label) in enumerate(TP_COLS):
-        hit = int(row[2 + i])
+        hit = int(row[2 + i] or 0)  # SUM() 在零樣本時回傳 NULL，轉為 0
         matrix.append({
             "tp_label":     label,
             "hit_count":    hit,
