@@ -1782,7 +1782,9 @@ function renderSummary(data){
       <td>${days}</td>
       <td>${n&&days?(n/days).toFixed(1):'—'}</td>
       <td><span class="badge ${hr>=60?'bg-green':hr>=40?'bg-gold':'bg-red'}">${hr}%</span></td>
-      <td>${r.avg_return!=null?(r.avg_return>=0?'+':'')+parseFloat(r.avg_return).toFixed(2)+'%':'—'}</td>
+      <td class="${r.avg_return==null?'':r.avg_return>0?'pos':r.avg_return<0?'neg':''}">
+        ${r.avg_return!=null?(r.avg_return>=0?'+':'')+parseFloat(r.avg_return).toFixed(2)+'%':'—'}
+      </td>
       <td class="pos">${pct0(r.avg_mfe)}</td>
       <td class="neg">${pct0(r.avg_mae)}</td>
       <td>${f2(r.avg_vr_0910)}</td>
