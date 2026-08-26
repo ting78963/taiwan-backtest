@@ -104,7 +104,7 @@ def create_run(db: Session, params: dict, versions: dict) -> int:
         "kv":     versions.get("key",     "V1"),
         "av":     versions.get("attack",  "V1"),
         "ov":     versions.get("outcome", "V1"),
-        "params": __import__("json").dumps(params),
+        "params": __import__("json").dumps(params, default=str),
         "df":     params["date_from"],
         "dt":     params["date_to"],
         "rt":     params.get("research_threshold", 0.035),
