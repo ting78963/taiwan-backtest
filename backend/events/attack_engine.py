@@ -325,7 +325,8 @@ def upsert_attacks(
                 is_touch, is_upward, is_cross, is_close_above,
                 crossed_key, closed_above_key, attack_high_above_key,
                 c21, c31, c32, c41, c31_v1a, c41_v1a,
-                entry_at_trigger, entry_at_bar_close, entry_next_open, entry_next_close
+                entry_at_trigger, entry_at_bar_close, entry_next_open, entry_next_close,
+                volume_ratio_at_attack
             ) VALUES (
                 :key_id, :date, :stock_id, :attack_version, :attack_number,
                 :start_time, :end_time, :bars_used,
@@ -334,7 +335,8 @@ def upsert_attacks(
                 :is_touch, :is_upward, :is_cross, :is_close_above,
                 :crossed_key, :closed_above_key, :attack_high_above_key,
                 :c21, :c31, :c32, :c41, :c31_v1a, :c41_v1a,
-                :entry_at_trigger, :entry_at_bar_close, :entry_next_open, :entry_next_close
+                :entry_at_trigger, :entry_at_bar_close, :entry_next_open, :entry_next_close,
+                :volume_ratio_at_attack
             )
             ON CONFLICT (key_id, attack_version, attack_number) DO UPDATE SET
                 start_time             = EXCLUDED.start_time,
@@ -361,7 +363,8 @@ def upsert_attacks(
                 entry_at_trigger       = EXCLUDED.entry_at_trigger,
                 entry_at_bar_close     = EXCLUDED.entry_at_bar_close,
                 entry_next_open        = EXCLUDED.entry_next_open,
-                entry_next_close       = EXCLUDED.entry_next_close
+                entry_next_close       = EXCLUDED.entry_next_close,
+                volume_ratio_at_attack = EXCLUDED.volume_ratio_at_attack
         """), {
             "key_id":           key_id,
             "date":             date_,
@@ -395,6 +398,7 @@ def upsert_attacks(
             "entry_at_bar_close": attack["entry_at_bar_close"],
             "entry_next_open":    attack.get("entry_next_open"),
             "entry_next_close":   attack.get("entry_next_close"),
+            "volume_ratio_at_attack": attack.get("volume_ratio_at_attack"),
         })
     db.commit()
 
@@ -418,16 +422,19 @@ def run_attack_detection(
     search_end：Attack 搜尋的時間上限（預設全天 13:30）
     """
     keys = db.execute(text("""
-        SELECT key_id, stock_id, key_price,
-               COALESCE(key_confirmed_time, key_created_time) AS key_confirmed_time,
-               key_source_time
-        FROM key_events
-        WHERE date = :date AND key_version = :kv
+        SELECT ke.key_id, ke.stock_id, ke.key_price,
+               COALESCE(ke.key_confirmed_time, ke.key_created_time) AS key_confirmed_time,
+               ke.key_source_time,
+               dc.prev_day_volume
+        FROM key_events ke
+        LEFT JOIN daily_context dc
+            ON ke.date = dc.date AND ke.stock_id = dc.stock_id
+        WHERE ke.date = :date AND ke.key_version = :kv
     """), {"date": target_date, "kv": key_version}).fetchall()
 
     stats = {"total_keys": len(keys), "total_attacks": 0, "errors": 0}
 
-    for (key_id, stock_id, key_price, key_confirmed_time, key_source_time) in keys:
+    for (key_id, stock_id, key_price, key_confirmed_time, key_source_time, prev_day_volume) in keys:
         try:
             df = load_market_bars(db, target_date, stock_id)
             if df.empty:
@@ -438,6 +445,18 @@ def run_attack_detection(
             attacks = find_attacks(df, float(key_price), str(key_confirmed_time), search_end)
             attacks = compute_c_values(attacks)
             attacks = fill_entry_prices(attacks, df)
+
+            # volume_ratio_at_attack = 截至 Attack end_time 的累積量 ÷ 前一交易日全天量
+            # 分母使用 prev_day_volume（昨日全天量），不用前5日均值
+            # 時間對齊：累積包含 end_time 那根 K（Attack 確認後的最後一根）
+            _cumvol = df.set_index("time_str")["volume"].cumsum()
+            for attack in attacks:
+                end_t = attack.get("end_time", "")
+                cum = _cumvol.get(end_t, None) if end_t else None
+                if cum is not None and prev_day_volume and float(prev_day_volume) > 0:
+                    attack["volume_ratio_at_attack"] = round(float(cum) / float(prev_day_volume), 4)
+                else:
+                    attack["volume_ratio_at_attack"] = None
 
             upsert_attacks(db, key_id, target_date, stock_id, attacks, attack_version)
             stats["total_attacks"] += len(attacks)

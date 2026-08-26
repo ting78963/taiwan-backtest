@@ -344,7 +344,7 @@ def test_t57_bucket_exclusive_upper_bound():
     )
     assert "attack_volume_v1b < :max_atk_vol" in src
     assert "early_high_pct < :max_ehpct" in src
-    assert "volume_ratio) < :max_vr" in src or "volume_ratio < :max_vr" in src
+    assert "volume_ratio_at_attack < :max_vr" in src, "max_volume_ratio 應讀 ae.volume_ratio_at_attack"
     assert "ae.c31 < :max_c31" in src
 
     # 不得出現 <= 的 max 條件

@@ -514,7 +514,7 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         filters.append("ae.c31 >= :min_c31")
         params["min_c31"] = req.min_c31
     if req.min_volume_ratio   is not None:
-        filters.append("COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) >= :min_vr")
+        filters.append("ae.volume_ratio_at_attack >= :min_vr")
         params["min_vr"] = req.min_volume_ratio
     if req.min_early_high_pct is not None:
         filters.append("dc.early_high_pct >= :min_ehpct")
@@ -530,7 +530,7 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
         filters.append("ae.c31 < :max_c31")
         params["max_c31"] = req.max_c31
     if req.max_volume_ratio   is not None:
-        filters.append("COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) < :max_vr")
+        filters.append("ae.volume_ratio_at_attack < :max_vr")
         params["max_vr"] = req.max_volume_ratio
     if req.max_early_high_pct is not None:
         filters.append("dc.early_high_pct < :max_ehpct")

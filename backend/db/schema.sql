@@ -186,6 +186,9 @@ CREATE TABLE IF NOT EXISTS attack_events (
     c31_v1a          NUMERIC(8,4),
     c41_v1a          NUMERIC(8,4),
 
+    -- 動態量比（Attack end_time 當下累積量 ÷ 前一交易日全天量）
+    volume_ratio_at_attack NUMERIC(8,4),  -- cumulative_vol_through_end_time / prev_day_volume
+
     -- 進場候選（entry_at_trigger = NULL，避免 look-ahead）
     entry_at_trigger     NUMERIC(10,2),    -- 永遠 NULL（保留欄位供相容），研究輸出不使用
     entry_at_bar_close   NUMERIC(10,2),
@@ -458,6 +461,9 @@ ALTER TABLE backtest_runs ADD COLUMN IF NOT EXISTS research_threshold NUMERIC(6,
 ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS attack_volume_v1a BIGINT;
 ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS c31_v1a           NUMERIC(8,4);
 ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS early_high_pct    NUMERIC(8,4);
+
+-- attack_events：新增 volume_ratio_at_attack
+ALTER TABLE attack_events ADD COLUMN IF NOT EXISTS volume_ratio_at_attack NUMERIC(8,4);
 
 -- data_inventory：改名 price_threshold → collection_threshold
 ALTER TABLE data_inventory ADD COLUMN IF NOT EXISTS collection_threshold NUMERIC(6,4);

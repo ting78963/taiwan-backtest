@@ -256,6 +256,7 @@ def _build_select_and_cols() -> tuple[str, list[str]]:
         ae.entry_next_open, ae.entry_next_close,
         dc.prev_close, dc.early_high_pct,
             COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) AS volume_ratio_at_0910,
+            ae.volume_ratio_at_attack,
         od.entry_mode, od.outcome_version,
         od.exit_price_5m,   od.return_5m,   od.mfe_5m,   od.mae_5m,
         od.exit_price_10m,  od.return_10m,  od.mfe_10m,  od.mae_10m,
@@ -270,7 +271,7 @@ def _build_select_and_cols() -> tuple[str, list[str]]:
         "is_touch","is_upward","is_cross","is_close_above",
         "c21","c31","c32","c41","c31_v1a","c41_v1a",
         "entry_at_bar_close","entry_next_open","entry_next_close",
-        "prev_close","early_high_pct","volume_ratio_at_0910",
+        "prev_close","early_high_pct","volume_ratio_at_0910","volume_ratio_at_attack",
         "entry_mode","outcome_version",
         "exit_price_5m","return_5m","mfe_5m","mae_5m",
         "exit_price_10m","return_10m","mfe_10m","mae_10m",
@@ -346,7 +347,7 @@ def run_backtest(
         WHERE ae.date >= :df AND ae.date <= :dt
           AND ae.attack_version = :av
           AND (:rt IS NULL OR dc.early_high_pct >= :rt * 100)
-          AND (:mvr IS NULL OR COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) >= :mvr)
+          AND (:mvr IS NULL OR ae.volume_ratio_at_attack >= :mvr)
           AND od.entry_mode = ANY(:ems)
         ORDER BY ae.date, ae.stock_id, ae.attack_number
     """), {"df": date_from, "dt": date_to, "av": av, "ov": ov,
@@ -410,6 +411,7 @@ def run_backtest(
             "prev_closes":  [r["prev_close"]        for r in batch],
             "ehpcts":       [r.get("early_high_pct") for r in batch],
             "vr0910s":      [r.get("volume_ratio_at_0910") for r in batch],
+            "vrat_s":       [r.get("volume_ratio_at_attack") for r in batch],
             "key_prices":   [r["key_price"]         for r in batch],
             "atk_nums":     [r["attack_number"]     for r in batch],
             "atk_vols":     [r["attack_volume"]     for r in batch],
