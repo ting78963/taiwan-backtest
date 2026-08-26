@@ -548,7 +548,7 @@ def generate_summary(db: Session, run_id: int) -> pd.DataFrame:
             ROUND(AVG(mfe)::numeric, 4)                           AS avg_mfe,
             ROUND(AVG(mae)::numeric, 4)                           AS avg_mae,
             ROUND(AVG(observed_return_pct)::numeric, 4)           AS avg_observed_return,
-            ROUND(AVG(volume_ratio_at_0910)::numeric, 4)          AS avg_vr_0910,
+            ROUND(AVG(volume_ratio)::numeric, 4)                  AS avg_vr_0910,
             ROUND(AVG(c31)::numeric, 4)                           AS avg_c31
         FROM backtest_trades
         WHERE run_id = :run_id
