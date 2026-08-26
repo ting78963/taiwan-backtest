@@ -391,15 +391,15 @@ def run_backtest(
                 tp_hit_time, sl_hit_time, tp_hit_first
             )
             SELECT * FROM unnest(
-                :run_ids::bigint[], :attack_ids::bigint[], :strategy_ids::varchar[],
-                :dates::date[], :stock_ids::varchar[], :prev_closes::numeric[], :ehpcts::numeric[], :vr0910s::numeric[],
-                :key_prices::numeric[], :atk_nums::int[],
-                :atk_vols::bigint[], :atk_v1as::bigint[],
-                :atk_defs::varchar[], :c21s::numeric[], :c31s::numeric[], :c31v1as::numeric[], :c32s::numeric[], :c41s::numeric[],
-                :entry_modes::varchar[], :entry_prices::numeric[],
-                :tp_pcts::numeric[], :sl_pcts::numeric[], :exit_limits::varchar[],
-                :exit_reasons::varchar[], :gross_rets::numeric[], :mfes::numeric[], :maes::numeric[],
-                :tp_times::time[], :sl_times::time[], :tp_firsts::boolean[]
+                CAST(:run_ids AS bigint[]), CAST(:attack_ids AS bigint[]), CAST(:strategy_ids AS varchar[]),
+                CAST(:dates AS date[]), CAST(:stock_ids AS varchar[]), CAST(:prev_closes AS numeric[]), CAST(:ehpcts AS numeric[]), CAST(:vr0910s AS numeric[]),
+                CAST(:key_prices AS numeric[]), CAST(:atk_nums AS int[]),
+                CAST(:atk_vols AS bigint[]), CAST(:atk_v1as AS bigint[]),
+                CAST(:atk_defs AS varchar[]), CAST(:c21s AS numeric[]), CAST(:c31s AS numeric[]), CAST(:c31v1as AS numeric[]), CAST(:c32s AS numeric[]), CAST(:c41s AS numeric[]),
+                CAST(:entry_modes AS varchar[]), CAST(:entry_prices AS numeric[]),
+                CAST(:tp_pcts AS numeric[]), CAST(:sl_pcts AS numeric[]), CAST(:exit_limits AS varchar[]),
+                CAST(:exit_reasons AS varchar[]), CAST(:gross_rets AS numeric[]), CAST(:mfes AS numeric[]), CAST(:maes AS numeric[]),
+                CAST(:tp_times AS time[]), CAST(:sl_times AS time[]), CAST(:tp_firsts AS boolean[])
             )
         """), {
             "run_ids":      [r["run_id"]            for r in batch],
