@@ -1749,9 +1749,11 @@ async function loadRunList(){
 
 async function loadSummary(runId, name){
   _summaryData = await fetch(API+`/api/backtest/${runId}/summary`).then(r=>r.json());
-  document.getElementById('summary-panel').style.display='block';
+  const panel = document.getElementById('summary-panel');
+  panel.style.display='block';
   document.getElementById('summary-title').textContent = name+' — 策略摘要';
   renderSummary(_summaryData);
+  requestAnimationFrame(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
 function sortSummary(field, el){
