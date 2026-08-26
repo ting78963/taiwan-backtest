@@ -96,7 +96,7 @@ def create_run(db: Session, params: dict, versions: dict) -> int:
             (run_name, engine_version, key_version, attack_version, outcome_version,
              params, date_from, date_to, research_threshold, status)
         VALUES (:name, :ev, :kv, :av, :ov,
-                :params::jsonb, :df, :dt, :rt, 'pending')
+                CAST(:params AS jsonb), :df, :dt, :rt, 'pending')
         RETURNING run_id
     """), {
         "name":   params.get("run_name") or f"{params.get('date_from')}~{params.get('date_to')}",
