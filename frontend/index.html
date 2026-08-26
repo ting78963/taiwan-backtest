@@ -677,7 +677,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
           <thead><tr>
             <th>Attack定義</th><th>次數</th><th>進場</th><th>TP</th><th>SL</th><th>截止</th>
             <th>樣本數</th><th>交易日數</th><th>日均訊號</th><th>達成率</th>
-            <th>Avg MFE</th><th>Avg MAE</th><th>量比@0910</th><th>Avg C31</th>
+            <th>Avg Return</th><th>Avg MFE</th><th>Avg MAE</th><th>量比@0910</th><th>Avg C31</th>
           </tr></thead>
           <tbody id="summary-body"></tbody>
         </table>
@@ -1782,6 +1782,7 @@ function renderSummary(data){
       <td>${days}</td>
       <td>${n&&days?(n/days).toFixed(1):'—'}</td>
       <td><span class="badge ${hr>=60?'bg-green':hr>=40?'bg-gold':'bg-red'}">${hr}%</span></td>
+      <td>${r.avg_return!=null?(r.avg_return>=0?'+':'')+parseFloat(r.avg_return).toFixed(2)+'%':'—'}</td>
       <td class="pos">${pct0(r.avg_mfe)}</td>
       <td class="neg">${pct0(r.avg_mae)}</td>
       <td>${f2(r.avg_vr_0910)}</td>
