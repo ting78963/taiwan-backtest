@@ -398,7 +398,7 @@ def run_backtest(
                 CAST(:atk_defs AS varchar[]), CAST(:c21s AS numeric[]), CAST(:c31s AS numeric[]), CAST(:c31v1as AS numeric[]), CAST(:c32s AS numeric[]), CAST(:c41s AS numeric[]),
                 CAST(:entry_modes AS varchar[]), CAST(:entry_prices AS numeric[]),
                 CAST(:tp_pcts AS numeric[]), CAST(:sl_pcts AS numeric[]), CAST(:exit_limits AS varchar[]),
-                CAST(:exit_reasons AS varchar[]), CAST(:gross_rets AS numeric[]), CAST(:mfes AS numeric[]), CAST(:maes AS numeric[]),
+                CAST(:exit_reasons AS varchar[]), CAST(:obs_rets AS numeric[]), CAST(:mfes AS numeric[]), CAST(:maes AS numeric[]),
                 CAST(:tp_times AS time[]), CAST(:sl_times AS time[]), CAST(:tp_firsts AS boolean[])
             )
         """), {
