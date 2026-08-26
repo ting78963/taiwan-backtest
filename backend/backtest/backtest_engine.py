@@ -381,7 +381,7 @@ def run_backtest(
         db.execute(text("""
             INSERT INTO backtest_trades (
                 run_id, attack_id, strategy_id,
-                date, stock_id, prev_close, early_high_pct, volume_ratio_at_0910,
+                date, stock_id, prev_close, early_high_pct, volume_ratio,
                 key_price, attack_number,
                 attack_volume, attack_volume_v1a,
                 attack_definition, c21, c31, c31_v1a, c32, c41,
