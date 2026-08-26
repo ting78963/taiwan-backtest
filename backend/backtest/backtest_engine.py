@@ -347,9 +347,11 @@ def run_backtest(
           AND ae.attack_version = :av
           AND (:rt IS NULL OR dc.early_high_pct >= :rt * 100)
           AND (:mvr IS NULL OR COALESCE(dc.volume_ratio_at_0910, dc.volume_ratio) >= :mvr)
+          AND od.entry_mode = ANY(:ems)
         ORDER BY ae.date, ae.stock_id, ae.attack_number
     """), {"df": date_from, "dt": date_to, "av": av, "ov": ov,
-           "rt": rt, "mvr": params.get("min_volume_ratio")}).fetchall()
+           "rt": rt, "mvr": params.get("min_volume_ratio"),
+           "ems": entry_modes}).fetchall()
 
     if not all_rows:
         update_run_status(db, run_id, "done", total_combos=0, total_events=0, total_trades=0)
