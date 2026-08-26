@@ -1095,15 +1095,17 @@ const SCAN_BUCKETS = {
     ],
   },
   volume_ratio: {
-    label: 'Volume Ratio（量比）',
+    label: 'Volume Ratio（動態量比）',
     c31_mode: false,
     buckets: [
-      { lower: null, upper: 0.2, label: '<0.2',     min_key: null,               max_key: 'max_volume_ratio' },
-      { lower: 0.2,  upper: 0.3, label: '0.2～<0.3', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.3,  upper: 0.5, label: '0.3～<0.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.5,  upper: 0.8, label: '0.5～<0.8', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.8,  upper: 1.5, label: '0.8～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 1.5,  upper: null,label: '≥1.5',     min_key: 'min_volume_ratio', max_key: null },
+      { lower: null, upper: 0.5, label: '<0.5',     min_key: null,               max_key: 'max_volume_ratio' },
+      { lower: 0.5,  upper: 1.0, label: '0.5～<1.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.0,  upper: 1.5, label: '1.0～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.5,  upper: 2.0, label: '1.5～<2.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 2.0,  upper: 3.0, label: '2.0～<3.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 3.0,  upper: 4.0, label: '3.0～<4.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 4.0,  upper: 6.0, label: '4.0～<6.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 6.0,  upper: null,label: '≥6.0',      min_key: 'min_volume_ratio', max_key: null },
     ],
   },
   attack_volume: {
@@ -1147,9 +1149,9 @@ const SCAN_BUCKETS = {
 };
 
 const SCAN_GRIDS = {
-  volume_ratio:   { label: 'Volume Ratio（量比）', key: 'min_volume_ratio',
-                    thresholds: [null, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0],
-                    labels:     ['Baseline', '≥0.5', '≥0.8', '≥1.0', '≥1.5', '≥2.0', '≥3.0'],
+  volume_ratio:   { label: 'Volume Ratio（動態量比）', key: 'min_volume_ratio',
+                    thresholds: [null, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+                    labels:     ['Baseline', '≥0.5', '≥1.0', '≥1.5', '≥2.0', '≥3.0', '≥4.0', '≥6.0'],
                     note: '' },
   attack_number:  { label: 'Attack Number（攻擊次數）', key: 'min_attack_number',
                     thresholds: [null, 2, 3, 4, 5, 6, 8],
@@ -1378,12 +1380,14 @@ const CROSS_BUCKETS = {
     label: 'Vol Ratio',
     c31_mode: false,
     buckets: [
-      { lower: null, upper: 0.2, label: '<0.2',     min_key: null,               max_key: 'max_volume_ratio' },
-      { lower: 0.2,  upper: 0.3, label: '0.2～<0.3', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.3,  upper: 0.5, label: '0.3～<0.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.5,  upper: 0.8, label: '0.5～<0.8', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 0.8,  upper: 1.5, label: '0.8～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
-      { lower: 1.5,  upper: null,label: '≥1.5',     min_key: 'min_volume_ratio', max_key: null },
+      { lower: null, upper: 0.5, label: '<0.5',     min_key: null,               max_key: 'max_volume_ratio' },
+      { lower: 0.5,  upper: 1.0, label: '0.5～<1.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.0,  upper: 1.5, label: '1.0～<1.5', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 1.5,  upper: 2.0, label: '1.5～<2.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 2.0,  upper: 3.0, label: '2.0～<3.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 3.0,  upper: 4.0, label: '3.0～<4.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 4.0,  upper: 6.0, label: '4.0～<6.0', min_key: 'min_volume_ratio', max_key: 'max_volume_ratio' },
+      { lower: 6.0,  upper: null,label: '≥6.0',      min_key: 'min_volume_ratio', max_key: null },
     ],
   },
   early_high_pct: {
