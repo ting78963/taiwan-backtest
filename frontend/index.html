@@ -509,6 +509,15 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <input type="number" id="az-pct-max" placeholder="Max" step="0.5" style="flex:1">
           </div>
         </div>
+        <div class="fg" style="grid-column:span 2">
+          <label>估量增縮 %（EVG）</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">≥</span>
+            <input type="number" id="az-evg" placeholder="Min" step="10" style="flex:1">
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">&lt;</span>
+            <input type="number" id="az-evg-max" placeholder="Max" step="10" style="flex:1">
+          </div>
+        </div>
       </div>
       <div class="btn-row">
         <button id="btn-analyze" class="btn btn-green" onclick="runAnalyze()">🔬 分析</button>
@@ -564,6 +573,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <option value="attack_volume">Attack Volume V1B（張）</option>
             <option value="c31">C31</option>
             <option value="early_high_pct">Early High %（早盤漲幅）</option>
+            <option value="estimated_vg">估量增縮 %（EVG）</option>
           </select>
         </div>
       </div>
@@ -612,6 +622,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <option value="volume_ratio">Volume Ratio</option>
             <option value="early_high_pct">Early High %</option>
             <option value="c31">C31</option>
+            <option value="estimated_vg">估量增縮 %（EVG）</option>
           </select>
         </div>
         <div class="fg">
@@ -622,6 +633,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <option value="attack_number">Attack Number</option>
             <option value="early_high_pct">Early High %</option>
             <option value="c31">C31</option>
+            <option value="estimated_vg">估量增縮 %（EVG）</option>
           </select>
         </div>
         <div class="fg">
@@ -935,6 +947,7 @@ const FACTOR_MIN_KEY = {
   c31:            'min_c31',
   volume_ratio:   'min_volume_ratio',
   early_high_pct: 'min_early_high_pct',
+  estimated_vg:   'min_estimated_vg',
 };
 
 // ─── buildBaseParams：讀取五項固定條件，排除正在掃描的因子 ───────
@@ -957,6 +970,8 @@ function buildBaseParams(excludeFactors = []) {
                       minEl: 'az-vr',           maxEl: 'az-vr-max',      parse: parseFloat },
     early_high_pct: { minKey: 'min_early_high_pct', maxKey: 'max_early_high_pct',
                       minEl: 'az-pct',          maxEl: 'az-pct-max',     parse: parseFloat },
+    estimated_vg:   { minKey: 'min_estimated_vg',   maxKey: 'max_estimated_vg',
+                      minEl: 'az-evg',          maxEl: 'az-evg-max',     parse: parseFloat },
   };
   for (const [factor, cfg] of Object.entries(vals)) {
     if (excludeFactors.includes(factor)) continue;  // 正在掃描的因子：min + max 都排除
@@ -999,6 +1014,8 @@ function getConditionSnapshot() {
     vrMax:     document.getElementById('az-vr-max').value,
     pct:       document.getElementById('az-pct').value,
     pctMax:    document.getElementById('az-pct-max').value,
+    evg:       document.getElementById('az-evg').value,
+    evgMax:    document.getElementById('az-evg-max').value,
   };
   return c;
 }
@@ -1016,6 +1033,7 @@ function conditionSummary(c, extra) {
   const c31  = rng(c.c31,    c.c31Max);          if (c31)  parts.push(`C31${c31}`);
   const vr   = rng(c.vr,     c.vrMax);           if (vr)   parts.push(`VR${vr}`);
   const pct  = rng(c.pct,    c.pctMax,'%');      if (pct)  parts.push(`Early${pct}`);
+  const evg  = rng(c.evg,    c.evgMax,'%');      if (evg)  parts.push(`EVG${evg}`);
   if (extra) parts.push(extra);
   return parts.join('　');
 }
@@ -1024,7 +1042,7 @@ function isStale(last, current) {
   if (!last) return false;
   return ['from','to','entry','cutoff',
           'atkNum','atkNumMax','atkVol','atkVolMax',
-          'c31','c31Max','vr','vrMax','pct','pctMax'].some(
+          'c31','c31Max','vr','vrMax','pct','pctMax','evg','evgMax'].some(
     k => last[k] !== current[k]
   );
 }
@@ -1051,7 +1069,8 @@ function showSnapshot(snapshotId, label, c, extra) {
  'az-atk-vol','az-atk-vol-max',
  'az-c31','az-c31-max',
  'az-vr','az-vr-max',
- 'az-pct','az-pct-max'].forEach(id => {
+ 'az-pct','az-pct-max',
+ 'az-evg','az-evg-max'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('change', () => {
@@ -1161,6 +1180,10 @@ const SCAN_GRIDS = {
                     thresholds: [null, 50, 100, 200, 500, 1000, 2000, 5000],
                     labels:     ['Baseline', '≥50', '≥100', '≥200', '≥500', '≥1000', '≥2000', '≥5000'],
                     note: '' },
+  estimated_vg:   { label: '估量增縮 %（EVG）', key: 'min_estimated_vg',
+                    thresholds: [null, 50, 100, 150, 200, 300, 400],
+                    labels:     ['Baseline', '≥50%', '≥100%', '≥150%', '≥200%', '≥300%', '≥400%'],
+                    note: '估量增縮 = 截至 Attack 時間的當日估計全天量 ÷ 昨日全天量 - 1（Rolling 10D F(t)）' },
   c31:            { label: 'C31', key: 'min_c31',
                     thresholds: [null, 0.1, 0.2, 0.5, 1.0, 2.0, 4.0],
                     labels:     ['Baseline', '≥0.1', '≥0.2', '≥0.5', '≥1.0', '≥2.0', '≥4.0'],
@@ -1401,6 +1424,32 @@ const CROSS_BUCKETS = {
       { lower: 7, upper: 8, label: '7～<8%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
       { lower: 8, upper: 9, label: '8～<9%', min_key: 'min_early_high_pct', max_key: 'max_early_high_pct' },
       { lower: 9, upper: null, label: '≥9%', min_key: 'min_early_high_pct', max_key: null },
+    ],
+  },
+  estimated_vg: {
+    label: '估量增縮 %（EVG）',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 50,  label: '<50%',      min_key: null,              max_key: 'max_estimated_vg' },
+      { lower: 50,   upper: 100, label: '50～<100%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 100,  upper: 150, label: '100～<150%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 150,  upper: 200, label: '150～<200%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 200,  upper: 300, label: '200～<300%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 300,  upper: 400, label: '300～<400%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 400,  upper: null,label: '≥400%',     min_key: 'min_estimated_vg', max_key: null },
+    ],
+  },
+  estimated_vg: {
+    label: 'EVG%',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 50,  label: '<50%',      min_key: null,              max_key: 'max_estimated_vg' },
+      { lower: 50,   upper: 100, label: '50～<100%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 100,  upper: 150, label: '100～<150%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 150,  upper: 200, label: '150～<200%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 200,  upper: 300, label: '200～<300%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 300,  upper: 400, label: '300～<400%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 400,  upper: null,label: '≥400%',     min_key: 'min_estimated_vg', max_key: null },
     ],
   },
   c31: {

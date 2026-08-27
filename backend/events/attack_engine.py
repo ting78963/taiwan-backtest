@@ -48,6 +48,72 @@ ATTACK_SEARCH_END = "13:30:00"
 
 
 # ────────────────────────────────────────────────────────────
+# Rolling F(t)：估量增縮第六因子
+# ────────────────────────────────────────────────────────────
+ROLLING_WINDOW = 10   # 正常使用最近 10 個有資料交易日
+MIN_PRIOR_DAYS = 5    # 少於 5 日 → NULL
+
+
+def _compute_rolling_ft(db, target_date) -> dict:
+    """
+    計算 target_date 的 F(t) 基準曲線（rolling 10D，無 look-ahead）。
+
+    規則：
+    - 只用 target_date 之前的 market_data（嚴格 < target_date）
+    - 正常用最近 10 個有資料交易日；5～9 日用全部可用；< 5 日回傳 {}
+    - 每個 stock-date 先算截至 t 的累積占比，再對所有 stock-date 取平均
+    - F(t) = 1 / mean_cum_share(t)
+    """
+    prior_dates = db.execute(text("""
+        SELECT DISTINCT date FROM market_data
+        WHERE date < :td
+        ORDER BY date DESC
+        LIMIT :lim
+    """), {"td": target_date, "lim": ROLLING_WINDOW}).fetchall()
+
+    if len(prior_dates) < MIN_PRIOR_DAYS:
+        return {}
+
+    dates_list = [str(r[0]) for r in prior_dates]
+    placeholders = ", ".join([f"'{d}'" for d in dates_list])
+
+    rows = db.execute(text(f"""
+        WITH daily_total AS (
+            SELECT date, stock_id, SUM(volume)::numeric AS total_vol
+            FROM market_data
+            WHERE date IN ({placeholders}) AND volume > 0
+            GROUP BY date, stock_id
+            HAVING SUM(volume) > 0
+        ),
+        cum_series AS (
+            SELECT
+                md.time,
+                SUM(md.volume) OVER (
+                    PARTITION BY md.date, md.stock_id
+                    ORDER BY md.time
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                )::numeric AS cum_vol,
+                dt.total_vol
+            FROM market_data md
+            JOIN daily_total dt ON md.date = dt.date AND md.stock_id = dt.stock_id
+        )
+        SELECT time, AVG(cum_vol / total_vol) AS avg_share
+        FROM cum_series
+        WHERE time >= '09:00:00' AND time <= '13:30:00'
+        GROUP BY time ORDER BY time
+    """)).fetchall()
+
+    ft = {}
+    for t, share in rows:
+        t_str = str(t)[:5]
+        if share and float(share) > 0:
+            ft[t_str] = round(1.0 / float(share), 6)
+    return ft
+
+
+
+
+# ────────────────────────────────────────────────────────────
 # 工具函數
 # ────────────────────────────────────────────────────────────
 
@@ -326,7 +392,8 @@ def upsert_attacks(
                 crossed_key, closed_above_key, attack_high_above_key,
                 c21, c31, c32, c41, c31_v1a, c41_v1a,
                 entry_at_trigger, entry_at_bar_close, entry_next_open, entry_next_close,
-                volume_ratio_at_attack
+                volume_ratio_at_attack,
+                estimated_volume_growth_at_attack
             ) VALUES (
                 :key_id, :date, :stock_id, :attack_version, :attack_number,
                 :start_time, :end_time, :bars_used,
@@ -336,7 +403,8 @@ def upsert_attacks(
                 :crossed_key, :closed_above_key, :attack_high_above_key,
                 :c21, :c31, :c32, :c41, :c31_v1a, :c41_v1a,
                 :entry_at_trigger, :entry_at_bar_close, :entry_next_open, :entry_next_close,
-                :volume_ratio_at_attack
+                :volume_ratio_at_attack,
+                :estimated_volume_growth_at_attack
             )
             ON CONFLICT (key_id, attack_version, attack_number) DO UPDATE SET
                 start_time             = EXCLUDED.start_time,
@@ -364,7 +432,8 @@ def upsert_attacks(
                 entry_at_bar_close     = EXCLUDED.entry_at_bar_close,
                 entry_next_open        = EXCLUDED.entry_next_open,
                 entry_next_close       = EXCLUDED.entry_next_close,
-                volume_ratio_at_attack = EXCLUDED.volume_ratio_at_attack
+                volume_ratio_at_attack = EXCLUDED.volume_ratio_at_attack,
+                estimated_volume_growth_at_attack = EXCLUDED.estimated_volume_growth_at_attack
         """), {
             "key_id":           key_id,
             "date":             date_,
@@ -399,6 +468,7 @@ def upsert_attacks(
             "entry_next_open":    attack.get("entry_next_open"),
             "entry_next_close":   attack.get("entry_next_close"),
             "volume_ratio_at_attack": attack.get("volume_ratio_at_attack"),
+            "estimated_volume_growth_at_attack": attack.get("estimated_volume_growth_at_attack"),
         })
     db.commit()
 
@@ -434,6 +504,11 @@ def run_attack_detection(
 
     stats = {"total_keys": len(keys), "total_attacks": 0, "errors": 0}
 
+    # 計算當日的 rolling F(t)（只做一次，所有股票共用同一條基準曲線）
+    # 嚴格只用 target_date 之前的資料，無 look-ahead
+    ft_map = _compute_rolling_ft(db, target_date)
+    ft_available = len(ft_map) > 0
+
     for (key_id, stock_id, key_price, key_confirmed_time, key_source_time, prev_day_volume) in keys:
         try:
             df = load_market_bars(db, target_date, stock_id)
@@ -452,11 +527,26 @@ def run_attack_detection(
             _cumvol = df.set_index("time_str")["volume"].cumsum()
             for attack in attacks:
                 end_t = attack.get("end_time", "")
+                end_t_str = str(end_t)[:5] if end_t else ""
                 cum = _cumvol.get(end_t, None) if end_t else None
+
+                # volume_ratio_at_attack：累積量 ÷ 昨日全天量
                 if cum is not None and prev_day_volume and float(prev_day_volume) > 0:
                     attack["volume_ratio_at_attack"] = round(float(cum) / float(prev_day_volume), 4)
                 else:
                     attack["volume_ratio_at_attack"] = None
+
+                # estimated_volume_growth_at_attack：第六因子
+                # estimated_vol = cum × F(end_time)
+                # evg = (estimated_vol / prev_day_volume - 1) × 100
+                if (ft_available and cum is not None and end_t_str in ft_map
+                        and prev_day_volume and float(prev_day_volume) > 0):
+                    f_val = ft_map[end_t_str]
+                    est_vol = float(cum) * f_val
+                    evg = round((est_vol / float(prev_day_volume) - 1) * 100, 2)
+                    attack["estimated_volume_growth_at_attack"] = evg
+                else:
+                    attack["estimated_volume_growth_at_attack"] = None
 
             upsert_attacks(db, key_id, target_date, stock_id, attacks, attack_version)
             stats["total_attacks"] += len(attacks)

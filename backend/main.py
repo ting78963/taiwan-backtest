@@ -111,6 +111,9 @@ class AnalyzeRequest(BaseModel):
     max_c31:            Optional[float] = None   # c31 < X
     max_volume_ratio:   Optional[float] = None   # volume_ratio < X
     max_early_high_pct: Optional[float] = None   # early_high_pct < X%
+    # 估量增縮（第六因子）
+    min_estimated_vg: Optional[float] = None   # estimated_volume_growth_at_attack >= X%
+    max_estimated_vg: Optional[float] = None   # estimated_volume_growth_at_attack < X%
     # C31 NULL 處理：True = 只計 c31 IS NOT NULL 的樣本
     require_c31_not_null: bool = False
     attack_version:     str   = "V1"
@@ -535,6 +538,13 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
     if req.max_early_high_pct is not None:
         filters.append("dc.early_high_pct < :max_ehpct")
         params["max_ehpct"] = req.max_early_high_pct
+    # 估量增縮 filter
+    if req.min_estimated_vg is not None:
+        filters.append("ae.estimated_volume_growth_at_attack >= :min_evg")
+        params["min_evg"] = req.min_estimated_vg
+    if req.max_estimated_vg is not None:
+        filters.append("ae.estimated_volume_growth_at_attack < :max_evg")
+        params["max_evg"] = req.max_estimated_vg
     # C31 NULL 過濾：True = 分母只計 c31 IS NOT NULL 的樣本
     if req.require_c31_not_null:
         filters.append("ae.c31 IS NOT NULL")
