@@ -1152,6 +1152,19 @@ const SCAN_BUCKETS = {
       { lower: 9, upper: null, label: '≥9%', min_key: 'min_early_high_pct', max_key: null },
     ],
   },
+  estimated_vg: {
+    label: '估量增縮 %（EVG）',
+    c31_mode: false,
+    buckets: [
+      { lower: null, upper: 50,  label: '<50%',       min_key: null,               max_key: 'max_estimated_vg' },
+      { lower: 50,   upper: 100, label: '50～<100%',  min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 100,  upper: 150, label: '100～<150%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 150,  upper: 200, label: '150～<200%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 200,  upper: 300, label: '200～<300%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 300,  upper: 400, label: '300～<400%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
+      { lower: 400,  upper: null,label: '≥400%',      min_key: 'min_estimated_vg', max_key: null },
+    ],
+  },
   c31: {
     label: 'C31',
     c31_mode: true,  // 自動加 require_c31_not_null=true，以有值樣本為 baseline
@@ -1439,20 +1452,7 @@ const CROSS_BUCKETS = {
       { lower: 400,  upper: null,label: '≥400%',     min_key: 'min_estimated_vg', max_key: null },
     ],
   },
-  estimated_vg: {
-    label: 'EVG%',
-    c31_mode: false,
-    buckets: [
-      { lower: null, upper: 50,  label: '<50%',      min_key: null,              max_key: 'max_estimated_vg' },
-      { lower: 50,   upper: 100, label: '50～<100%', min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
-      { lower: 100,  upper: 150, label: '100～<150%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
-      { lower: 150,  upper: 200, label: '150～<200%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
-      { lower: 200,  upper: 300, label: '200～<300%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
-      { lower: 300,  upper: 400, label: '300～<400%',min_key: 'min_estimated_vg', max_key: 'max_estimated_vg' },
-      { lower: 400,  upper: null,label: '≥400%',     min_key: 'min_estimated_vg', max_key: null },
-    ],
-  },
-  c31: {
+    c31: {
     label: 'C31',
     c31_mode: true,
     buckets: [
