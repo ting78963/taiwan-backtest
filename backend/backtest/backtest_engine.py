@@ -60,13 +60,18 @@ ATK_DEF_COL = {
 
 # 截止時間字串映射（5m/10m = None，用 within boolean）
 CUTOFF_TIME_MAP = {
-    "5m":    None,
-    "10m":   None,
-    "0959":  "09:59:00",
-    "1030":  "10:30:00",
-    "1130":  "11:30:00",
-    "close": "13:30:00",
+    "5m":            None,
+    "10m":           None,
+    "0959":          "09:59:00",
+    "1030":          "10:30:00",
+    "1130":          "11:30:00",
+    "close":         "13:30:00",
+    "next_day_open": None,   # 隔日開盤：從 market_data 即時取
+    "next_day_close":None,   # 隔日收盤：從 market_data 即時取
 }
+
+# 跨日 exit_time label 集合
+NEXT_DAY_EXIT_LABELS = {"next_day_open", "next_day_close"}
 
 # outcome_data 欄位映射
 def _tp_time_col(tp):
@@ -156,6 +161,20 @@ def _determine_exit(
         same_bar_ambiguous: TP 與 SL 在同一根觸發
         observed_return_pct: 截止時的實際 close 報酬（timeout 用）
     """
+    # 隔日出場：TP/SL 不適用（跨日），直接取 timeout return
+    if exit_time_label in NEXT_DAY_EXIT_LABELS:
+        actual_return     = row.get(f"return_{exit_time_label}")
+        actual_exit_price = row.get(f"exit_price_{exit_time_label}")
+        return {
+            "exit_reason": "timeout", "hit": False,
+            "observed_return_pct": float(actual_return or 0),
+            "exit_price": actual_exit_price,
+            "mfe": float(row.get(f"mfe_{exit_time_label}") or 0) if row.get(f"mfe_{exit_time_label}") is not None else None,
+            "mae": float(row.get(f"mae_{exit_time_label}") or 0) if row.get(f"mae_{exit_time_label}") is not None else None,
+            "tp_hit_time": None, "sl_hit_time": None,
+            "same_bar_ambiguous": False,
+        }
+
     raw_tp_time = row.get(_tp_time_col(tp)) if tp else None
     raw_sl_time = row.get(_sl_time_col(sl)) if sl else None
 
@@ -468,6 +487,44 @@ def run_backtest(
                 continue
 
             row_dict = row.to_dict()
+
+            # 隔日出場：從 market_data 即時取次交易日價格
+            if exit_time in NEXT_DAY_EXIT_LABELS:
+                trade_date = row["date"]
+                stock_id   = row["stock_id"]
+                # 先從 data_inventory 取市場下一個交易日（不分股票）
+                nd_date_row = db.execute(text("""
+                    SELECT date FROM data_inventory
+                    WHERE date > :td AND fetch_status = 'done'
+                    ORDER BY date LIMIT 1
+                """), {"td": trade_date}).fetchone()
+                if nd_date_row is None:
+                    continue  # 市場無下一交易日資料
+                nd_date = nd_date_row[0]
+                # 再查該股票當日是否有資料
+                if exit_time == "next_day_open":
+                    nd_price_row = db.execute(text("""
+                        SELECT open FROM market_data
+                        WHERE stock_id=:sid AND date=:nd
+                        ORDER BY time LIMIT 1
+                    """), {"sid": stock_id, "nd": nd_date}).fetchone()
+                else:  # next_day_close
+                    nd_price_row = db.execute(text("""
+                        SELECT close FROM market_data
+                        WHERE stock_id=:sid AND date=:nd
+                        ORDER BY time DESC LIMIT 1
+                    """), {"sid": stock_id, "nd": nd_date}).fetchone()
+                if nd_price_row is None or nd_price_row[0] is None:
+                    continue  # 該股該日無資料，跳過
+                nd_exit_price = float(nd_price_row[0])
+                ep_f = float(ep)
+                nd_return = round((nd_exit_price / ep_f - 1) * 100, 4) if ep_f > 0 else 0.0
+                # 注入 row_dict：MFE/MAE 存 NULL（不計算跨日路徑）
+                row_dict[f"exit_price_{exit_time}"] = nd_exit_price
+                row_dict[f"return_{exit_time}"]     = nd_return
+                row_dict[f"mfe_{exit_time}"]        = None
+                row_dict[f"mae_{exit_time}"]        = None
+
             result = _determine_exit(tp, sl, exit_time, row_dict, intrabar_policy)
 
             if result["exit_reason"] == "excluded":

@@ -296,7 +296,7 @@ def test_t23_cutoff_time_map_complete():
     驗證 CUTOFF_TIME_MAP 的截止時間字串格式正確，
     且所有 exit_time_label 都有對應的映射。
     """
-    expected_labels = {"5m", "10m", "0959", "1030", "1130", "close"}
+    expected_labels = {"5m", "10m", "0959", "1030", "1130", "close", "next_day_open", "next_day_close"}
     actual_labels   = set(CUTOFF_TIME_MAP.keys())
 
     assert expected_labels == actual_labels, (
@@ -321,6 +321,8 @@ def test_t23_cutoff_time_map_complete():
     assert CUTOFF_TIME_MAP["close"] == "13:30:00"
     assert CUTOFF_TIME_MAP["5m"] is None   # 相對根數，無絕對時間
     assert CUTOFF_TIME_MAP["10m"] is None
+    assert CUTOFF_TIME_MAP["next_day_open"] is None
+    assert CUTOFF_TIME_MAP["next_day_close"] is None
 
     print("✓ T23 PASS — CUTOFF_TIME_MAP 格式完整正確")
     for label, t in CUTOFF_TIME_MAP.items():
@@ -331,6 +333,38 @@ def test_t23_cutoff_time_map_complete():
 # 執行所有測試
 # ────────────────────────────────────────────────────────────
 
+
+
+def test_t24_next_day_exit_labels():
+    """
+    next_day_open / next_day_close：
+    1. 在 NEXT_DAY_EXIT_LABELS 集合中
+    2. _determine_exit 對這兩個 label 做 early return（不走 TP/SL 路徑）
+    3. MFE/MAE 可為 None（不計算跨日路徑）
+    4. exit_reason = 'timeout'（純持有，TP/SL 不作用）
+    """
+    from backtest.backtest_engine import NEXT_DAY_EXIT_LABELS, _determine_exit
+    assert "next_day_open"  in NEXT_DAY_EXIT_LABELS
+    assert "next_day_close" in NEXT_DAY_EXIT_LABELS
+
+    # 模擬已注入隔日資料的 row_dict
+    row = {
+        "exit_price_next_day_open": 105.0,
+        "return_next_day_open":     5.0,
+        "mfe_next_day_open":        None,
+        "mae_next_day_open":        None,
+    }
+    result = _determine_exit(tp=1.0, sl=0.5, exit_time_label="next_day_open",
+                             row=row, intrabar_policy="conservative")
+    assert result["exit_reason"] == "timeout",        "隔日出場應為 timeout（TP/SL 不作用）"
+    assert result["hit"] == False,                    "隔日出場 hit=False"
+    assert abs(result["observed_return_pct"] - 5.0) < 0.001
+    assert result["mfe"] is None or result["mfe"] == 0.0, "MFE 應為 None 或 0"
+    assert result["mae"] is None or result["mae"] == 0.0, "MAE 應為 None 或 0"
+    assert result["tp_hit_time"] is None,             "隔日出場不判 TP hit time"
+    assert result["sl_hit_time"] is None,             "隔日出場不判 SL hit time"
+    print("✓ T24 PASS — next_day exit: timeout, hit=False, MFE/MAE=None, TP/SL 不作用")
+
 def run_all():
     tests = [
         test_t16_tp_after_cutoff_must_timeout,
@@ -339,6 +373,7 @@ def run_all():
         test_t19_both_tp_sl_after_cutoff_timeout,
         test_t20_t21_t22_inventory_threshold,
         test_t23_cutoff_time_map_complete,
+        test_t24_next_day_exit_labels,
     ]
 
     passed = 0
