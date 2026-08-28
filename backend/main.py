@@ -134,6 +134,10 @@ class BacktestRequest(BaseModel):
     intrabar_policy:     str  = Field("conservative")
     # 研究達成率，不模擬損益
     min_volume_ratio:    Optional[float] = Field(None)
+    max_volume_ratio:    Optional[float] = Field(None)   # VR < X（<0.5 用）
+    max_early_high_pct:  Optional[float] = Field(None)   # early_high_pct < X%
+    attack_time_from:    Optional[str]   = Field(None)   # ae.end_time >= HH:MM:SS
+    attack_time_to:      Optional[str]   = Field(None)   # ae.end_time <  HH:MM:SS
     attack_definitions:  Optional[list[str]]   = None
     attack_numbers:      Optional[list[int]]   = None
     entry_modes:         Optional[list[str]]   = None
