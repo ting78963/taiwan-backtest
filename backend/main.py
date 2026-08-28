@@ -240,37 +240,84 @@ async def run_events(req: EventRequest, background_tasks: BackgroundTasks, db=De
     def run():
         db2 = SessionLocal()
         try:
-            from datetime import timedelta
-            versions = dict(key=req.key_version, attack=req.attack_version, outcome=req.outcome_version)
+            from events.event_manager import get_all_data_dates
             if req.force_rerun:
                 # 強制重建：不論已完成幾天，全部 data_dates 都重新處理
-                from events.event_manager import get_all_data_dates
                 dates_needed = get_all_data_dates(db2, req.date_from, req.date_to)
-                logger.info(f"[EVENT TASK] force_rerun=True → dates_needed={len(dates_needed)} 天（全部 data_dates）")
+                logger.info(f"[FORCE REBUILD] force_rerun=True → dates_needed={len(dates_needed)} 天")
+
+                # Phase 2：找出受影響的完整 backtest_runs，以 run 為單位刪除
+                # 非 force 模式絕對不執行此段
+                affected = db2.execute(text("""
+                    SELECT DISTINCT bt.run_id,
+                           COUNT(bt.trade_id) AS trade_count
+                    FROM backtest_trades bt
+                    JOIN attack_events ae ON bt.attack_id = ae.attack_id
+                    WHERE ae.date BETWEEN :df AND :dt
+                    GROUP BY bt.run_id
+                """), {"df": req.date_from, "dt": req.date_to}).fetchall()
+                affected_run_ids = [r[0] for r in affected]
+                affected_trade_count = sum(r[1] for r in affected)
+
+                if affected_run_ids:
+                    logger.info(
+                        f"[FORCE REBUILD] affected_backtest_runs={len(affected_run_ids)} "
+                        f"affected_backtest_trades={affected_trade_count} "
+                        f"run_ids={affected_run_ids}"
+                    )
+                    try:
+                        # 單一 transaction：DELETE 全部受影響 runs
+                        # FK CASCADE 自動帶走 backtest_trades
+                        db2.execute(text(
+                            "DELETE FROM backtest_runs WHERE run_id = ANY(:ids)"
+                        ), {"ids": affected_run_ids})
+                        db2.commit()
+                        logger.info(
+                            f"[FORCE REBUILD] deleted {len(affected_run_ids)} backtest_runs "
+                            f"+ {affected_trade_count} backtest_trades (CASCADE)"
+                        )
+                    except Exception as del_err:
+                        db2.rollback()
+                        logger.error(f"[FORCE REBUILD] backtest_runs DELETE failed, ROLLBACK: {del_err}")
+                        set_task(task_id, "error", message=f"刪除舊 backtest_runs 失敗，已 ROLLBACK：{del_err}")
+                        return  # 不進入 Event rebuild
+                else:
+                    logger.info("[FORCE REBUILD] affected_backtest_runs=0，無需刪除 backtest")
+
             else:
                 dates_needed = get_dates_needing_events(
                     db2, req.date_from, req.date_to,
                     req.key_version, req.attack_version, req.outcome_version
                 )
                 logger.info(f"[EVENT TASK] force_rerun=False → dates_needed={len(dates_needed)} 天")
+
             if not dates_needed:
                 logger.info(f"[EVENT TASK] task_id={task_id} 所有日期事件資料已是最新版本")
                 set_task(task_id, "done", message="所有日期的事件資料已是最新版本，無需重跑", dates_processed=0)
                 return
 
+            # Phase 3：逐日 clear + rebuild
+            # 任何日期失敗 → task 標記 error，已成功日期保留，不 mark 失敗日期 done
             stats_all = []
             for d in dates_needed:
                 logger.info(f"[EVENT DATE START] task_id={task_id} date={d}")
-                if req.force_rerun:
-                    clear_events_for_date(db2, d)
-                k = run_key_detection(db2, d, req.key_version,
-                                      research_threshold=req.research_threshold)
-                a = run_attack_detection(db2, d, req.key_version, req.attack_version)
-                o = run_outcome_engine(db2, d, req.attack_version, req.outcome_version)
-                mark_event_run_done(db2, d, req.key_version, req.attack_version, req.outcome_version,
-                                    k.get("found", 0), a.get("total_attacks", 0))
-                stats_all.append({"date": str(d), "keys": k, "attacks": a, "outcomes": o})
-                logger.info(f"[EVENT DATE DONE] date={d} keys={k.get('found',0)} attacks={a.get('total_attacks',0)}")
+                try:
+                    if req.force_rerun:
+                        clear_events_for_date(db2, d)
+                    k = run_key_detection(db2, d, req.key_version,
+                                          research_threshold=req.research_threshold)
+                    a = run_attack_detection(db2, d, req.key_version, req.attack_version)
+                    o = run_outcome_engine(db2, d, req.attack_version, req.outcome_version)
+                    mark_event_run_done(db2, d, req.key_version, req.attack_version, req.outcome_version,
+                                        k.get("found", 0), a.get("total_attacks", 0))
+                    stats_all.append({"date": str(d), "keys": k, "attacks": a, "outcomes": o})
+                    logger.info(f"[EVENT DATE DONE] date={d} keys={k.get('found',0)} attacks={a.get('total_attacks',0)}")
+                except Exception as date_err:
+                    logger.error(f"[EVENT DATE FAILED] date={d} error={date_err}")
+                    set_task(task_id, "error",
+                             message=f"日期 {d} 重建失敗：{date_err}",
+                             dates_processed=len(stats_all))
+                    return  # 不繼續後面日期，已成功日期保留
 
             set_task(task_id, "done", dates_processed=len(stats_all), results=stats_all)
             logger.info(f"[EVENT TASK COMPLETED] task_id={task_id} processed={len(stats_all)}")

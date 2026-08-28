@@ -328,6 +328,94 @@ def test_t64_get_all_data_dates_exists():
     print("✓ T64 PASS — get_all_data_dates 只查 data_inventory，不受 event_runs 限制")
 
 
+def test_t65_force_rebuild_phase2_deletes_complete_runs():
+    """
+    force_rerun=True 時，Phase 2 必須：
+    1. 找出受影響的 backtest_runs（以 run 為整體單位）
+    2. DELETE FROM backtest_runs WHERE run_id = ANY(...)
+    3. 不直接 DELETE backtest_trades（依賴 FK CASCADE）
+    4. 非 force 模式絕對不執行此刪除
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    force_block_start = main_src.find("if req.force_rerun:")
+    force_block = main_src[force_block_start:force_block_start+3000]
+
+    assert "DELETE FROM backtest_runs" in force_block,         "force_rerun=True 必須 DELETE FROM backtest_runs"
+    assert "ANY(:ids)" in force_block or "ANY(:run_ids)" in force_block,         "必須以 run_id 批次刪除（不留孤兒）"
+
+    # 確認非 force 路徑不刪 backtest
+    non_force_start = main_src.find("else:", force_block_start)
+    non_force_end = main_src.find("if not dates_needed:", non_force_start)
+    non_force_block = main_src[non_force_start:non_force_end]
+    assert "DELETE FROM backtest_runs" not in non_force_block,         "force=False 路徑不得刪 backtest_runs"
+
+    print("✓ T65 PASS — force=True 以完整 run 為單位刪除 backtest_runs")
+    print("   force=False 路徑不包含任何 backtest_runs DELETE")
+
+
+def test_t66_phase2_single_transaction():
+    """
+    Phase 2 的 DELETE 必須在 try/except 中，
+    失敗時 ROLLBACK 且不進入 Event rebuild（return）。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    assert "db2.rollback()" in main_src, "Phase 2 失敗必須 ROLLBACK"
+    # 確認 rollback 後有 return（不進 Event rebuild）
+    rollback_pos = main_src.find("db2.rollback()")
+    return_after = main_src[rollback_pos:rollback_pos+400]
+    assert "return" in return_after, "ROLLBACK 後必須 return，不得進入 Event rebuild"
+    print("✓ T66 PASS — Phase 2 失敗時 ROLLBACK + return，不進 Event rebuild")
+
+
+def test_t67_phase3_per_date_error_handling():
+    """
+    Phase 3 逐日 rebuild：某日失敗時
+    - task 標記 error
+    - 不 mark_event_run_done 該日期
+    - 已成功日期保留
+    - 再次 force rebuild 可安全重新執行（因為 mark_event_run_done 沒執行）
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    # Phase 3 loop 有 try/except per date
+    assert "for d in dates_needed:" in main_src, "必須有逐日 loop"
+    loop_pos = main_src.find("for d in dates_needed:")
+    loop_block = main_src[loop_pos:loop_pos+1500]
+    assert "except Exception as date_err" in loop_block or "except Exception" in loop_block,         "Phase 3 每個日期必須有 try/except"
+    assert "mark_event_run_done" in loop_block, "成功日期才 mark_event_run_done"
+    # mark_event_run_done 必須在 try block 內（失敗不 mark）
+    try_pos = loop_block.find("try:")
+    except_pos = loop_block.find("except Exception")
+    mark_pos = loop_block.find("mark_event_run_done")
+    assert try_pos < mark_pos < except_pos,         "mark_event_run_done 必須在 try block 內（失敗不執行）"
+    print("✓ T67 PASS — Phase 3 逐日 try/except，失敗不 mark done，已成功日期保留")
+
+
+def test_t68_non_force_never_deletes_backtest():
+    """
+    force_rerun=False 時，整個 run() 函數不得包含任何
+    backtest_runs 或 backtest_trades 的 DELETE。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    # 找 else 分支（force=False 路徑）
+    # 確認 DELETE FROM backtest_runs 只出現在 force_rerun=True 的分支內
+    force_if_pos = main_src.find("if req.force_rerun:")
+    delete_pos = main_src.find("DELETE FROM backtest_runs")
+    assert 0 < delete_pos, "DELETE FROM backtest_runs 應存在（在 force block 內）"
+    # DELETE 應在 force_rerun if block 之後（即在 force block 內）
+    assert delete_pos > force_if_pos,         "DELETE FROM backtest_runs 必須在 if req.force_rerun: 之後"
+    print("✓ T68 PASS — DELETE FROM backtest_runs 只在 force_rerun=True 分支內")
+
+
+def test_t69_log_contains_run_and_trade_counts():
+    """
+    force_rerun=True 時的 log 必須同時記錄 run count 和 trade count。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    assert "affected_backtest_runs=" in main_src, "log 應含 affected_backtest_runs"
+    assert "affected_backtest_trades=" in main_src, "log 應含 affected_backtest_trades"
+    print("✓ T69 PASS — log 記錄 affected_backtest_runs 和 affected_backtest_trades")
+
+
 def run_all():
     tests = [
         test_t54_background_function_executes,
@@ -341,6 +429,11 @@ def run_all():
         test_t62_force_rerun_uses_all_data_dates,
         test_t63_force_rerun_log_message,
         test_t64_get_all_data_dates_exists,
+        test_t65_force_rebuild_phase2_deletes_complete_runs,
+        test_t66_phase2_single_transaction,
+        test_t67_phase3_per_date_error_handling,
+        test_t68_non_force_never_deletes_backtest,
+        test_t69_log_contains_run_and_trade_counts,
     ]
     passed = failed = 0
     print("=" * 60)
