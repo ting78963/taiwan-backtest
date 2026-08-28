@@ -460,6 +460,14 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
             <option value="13:30">13:30（收盤）</option>
           </select>
         </div>
+        <div class="fg">
+          <label>Attack 時段</label>
+          <select id="az-atk-time">
+            <option value="">不限</option>
+            <option value="0900-0930">09:00～09:29（[09:00, 09:30)）</option>
+            <option value="0930-1000">09:30～09:59（[09:30, 10:00)）</option>
+          </select>
+        </div>
       </div>
       <hr class="divider">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">五項研究條件（留空 = 不篩選）</div>
@@ -872,7 +880,7 @@ async function runAnalyze() {
 
   // buildBaseParams([])：不排除任何因子，全部固定條件帶入
   const body = { date_from: from, date_to: to, entry_mode: entry, cutoff,
-                 ...buildBaseParams([]) };
+                 ...getAtkTimeParams(), ...buildBaseParams([]) };
 
   const btn = document.getElementById('btn-analyze');
   btn.disabled = true; btn.textContent = '分析中...';
@@ -990,6 +998,17 @@ const CUTOFF_DISPLAY = {
   '11:29': '11:30', '11:59': '12:00', '12:29': '12:30',
   '12:59': '13:00', '13:30': '收盤',
 };
+// Attack 時段 → API 參數轉換（half-open interval [from, to)）
+const ATK_TIME_MAP = {
+  '':          { attack_time_from: null, attack_time_to: null },
+  '0900-0930': { attack_time_from: '09:00:00', attack_time_to: '09:30:00' },
+  '0930-1000': { attack_time_from: '09:30:00', attack_time_to: '10:00:00' },
+};
+function getAtkTimeParams() {
+  const v = document.getElementById('az-atk-time').value;
+  return ATK_TIME_MAP[v] || { attack_time_from: null, attack_time_to: null };
+}
+
 function cutoffLabel(c) { return (CUTOFF_DISPLAY[c] || c) + (c === '13:30' ? '' : ' 前'); }
 
 // ─── 研究條件 snapshot ──────────────────────────────────────────
@@ -1004,6 +1023,7 @@ function getConditionSnapshot() {
     to:        document.getElementById('az-to').value,
     entry:     document.getElementById('az-entry').value,
     cutoff:    document.getElementById('az-cutoff').value,
+    atkTime:  document.getElementById('az-atk-time').value,
     atkNum:    document.getElementById('az-atk-num').value,
     atkNumMax: document.getElementById('az-atk-num-max').value,
     atkVol:    document.getElementById('az-atk-vol').value,
@@ -1021,7 +1041,9 @@ function getConditionSnapshot() {
 }
 
 function conditionSummary(c, extra) {
+  const ATK_TIME_LABEL = { '0900-0930': '開盤前半(09:00-09:29)', '0930-1000': '開盤後半(09:30-09:59)' };
   const parts = [`${c.from}～${c.to}`, c.entry, cutoffLabel(c.cutoff)];
+  if (c.atkTime) parts.push(ATK_TIME_LABEL[c.atkTime] || c.atkTime);
   const rng = (min, max, unit='') => {
     if (min && max) return `${min}–<${max}${unit}`;
     if (min) return `≥${min}${unit}`;
@@ -1040,7 +1062,7 @@ function conditionSummary(c, extra) {
 
 function isStale(last, current) {
   if (!last) return false;
-  return ['from','to','entry','cutoff',
+  return ['from','to','entry','cutoff','atkTime',
           'atkNum','atkNumMax','atkVol','atkVolMax',
           'c31','c31Max','vr','vrMax','pct','pctMax','evg','evgMax'].some(
     k => last[k] !== current[k]
@@ -1064,7 +1086,7 @@ function showSnapshot(snapshotId, label, c, extra) {
 }
 
 // ─── 監聽研究條件變更，標示 stale ───────────────────────────────
-['az-from','az-to','az-entry','az-cutoff',
+['az-from','az-to','az-entry','az-cutoff','az-atk-time',
  'az-atk-num','az-atk-num-max',
  'az-atk-vol','az-atk-vol-max',
  'az-c31','az-c31-max',
@@ -1232,7 +1254,7 @@ async function runScan() {
       // excludeFactors=[factor]：排除正在掃描因子的固定條件，由掃描門檻接管
       const baseFixed = buildBaseParams([factor]);
       const requests = grid.thresholds.map(t => {
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed };
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...getAtkTimeParams(), ...baseFixed };
         if (t !== null) body[grid.key] = t;
         return fetch(API + '/api/analyze', {
           method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1252,7 +1274,7 @@ async function runScan() {
       // excludeFactors=[factor]：排除正在掃描因子的固定條件
       const baseFixed2 = buildBaseParams([factor]);
       // Baseline：固定條件（排除掃描因子） + C31 valid filter（若 C31 是掃描因子則排除）
-      let baselineReq = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed2 };
+      let baselineReq = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...getAtkTimeParams(), ...baseFixed2 };
       if (isC31) baselineReq.require_c31_not_null = true;
       const baselineResult = await fetch(API + '/api/analyze', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1261,7 +1283,7 @@ async function runScan() {
 
       // 各 bucket：同樣基底 + bucket 自身的 min/max
       const bucketRequests = bdef.buckets.map(b => {
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...baseFixed2 };
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...getAtkTimeParams(), ...baseFixed2 };
         if (b.min_key && b.lower !== null) body[b.min_key] = b.lower;
         if (b.max_key && b.upper !== null) body[b.max_key] = b.upper;
         if (isC31) body.require_c31_not_null = true;
@@ -1499,7 +1521,7 @@ async function runCross() {
 
     // Baseline：只帶固定控制條件（不含 A/B 因子的限制）
     // 這樣 pp uplift 的比較基準才是正確的「同控制條件母體」
-    const baseBody = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...crossFixed };
+    const baseBody = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...getAtkTimeParams(), ...crossFixed };
     if (isC31) baseBody.require_c31_not_null = true;
     const baseResult = await fetch(API + '/api/analyze', {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1525,7 +1547,7 @@ async function runCross() {
       await Promise.all(batch.map(async ({ bA, bB }, j) => {
         const idx  = i + j;
         // Cell body = 固定控制條件（排除A/B）+ bucket A 的 min/max + bucket B 的 min/max
-        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...crossFixed };
+        const body = { date_from: from, date_to: to, entry_mode: entry, cutoff, ...getAtkTimeParams(), ...crossFixed };
         if (isC31) body.require_c31_not_null = true;
         if (bA.min_key && bA.lower !== null) body[bA.min_key] = bA.lower;
         if (bA.max_key && bA.upper !== null) body[bA.max_key] = bA.upper;

@@ -111,6 +111,9 @@ class AnalyzeRequest(BaseModel):
     max_c31:            Optional[float] = None   # c31 < X
     max_volume_ratio:   Optional[float] = None   # volume_ratio < X
     max_early_high_pct: Optional[float] = None   # early_high_pct < X%
+    # Attack 時段篩選（ae.end_time 的研究 filter，與 cutoff 無關）
+    attack_time_from: Optional[str] = None  # ae.end_time >= HH:MM:SS (inclusive)
+    attack_time_to:   Optional[str] = None  # ae.end_time <  HH:MM:SS (exclusive)
     # 估量增縮（第六因子）
     min_estimated_vg: Optional[float] = None   # estimated_volume_growth_at_attack >= X%
     max_estimated_vg: Optional[float] = None   # estimated_volume_growth_at_attack < X%
@@ -538,6 +541,18 @@ def analyze(req: AnalyzeRequest, db=Depends(get_db)):
     if req.max_early_high_pct is not None:
         filters.append("dc.early_high_pct < :max_ehpct")
         params["max_ehpct"] = req.max_early_high_pct
+    # Attack 時段 filter（half-open interval [from, to)，以 ae.end_time 為準）
+    VALID_ATTACK_TIMES = {"09:00:00", "09:30:00", "10:00:00", None}
+    if req.attack_time_from is not None:
+        if req.attack_time_from not in VALID_ATTACK_TIMES:
+            raise HTTPException(status_code=422, detail=f"attack_time_from 不合法：{req.attack_time_from}")
+        filters.append("CAST(ae.end_time AS TIME) >= CAST(:atk_from AS TIME)")
+        params["atk_from"] = req.attack_time_from
+    if req.attack_time_to is not None:
+        if req.attack_time_to not in VALID_ATTACK_TIMES:
+            raise HTTPException(status_code=422, detail=f"attack_time_to 不合法：{req.attack_time_to}")
+        filters.append("CAST(ae.end_time AS TIME) < CAST(:atk_to AS TIME)")
+        params["atk_to"] = req.attack_time_to
     # 估量增縮 filter
     if req.min_estimated_vg is not None:
         filters.append("ae.estimated_volume_growth_at_attack >= :min_evg")
