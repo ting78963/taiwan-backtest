@@ -375,7 +375,7 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
     -- 出場條件設定
     tp_pct            NUMERIC(6,4),
     sl_pct            NUMERIC(6,4),
-    exit_time_limit   VARCHAR(10),
+    exit_time_limit   VARCHAR(20),
 
     -- 出場結果
     exit_time         TIME,
@@ -469,6 +469,9 @@ ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus700_time TIME;
 ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus800_time TIME;
 ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus900_time TIME;
 ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus990_time TIME;
+
+-- backtest_trades：exit_time_limit 擴充為 VARCHAR(20)
+ALTER TABLE backtest_trades ALTER COLUMN exit_time_limit TYPE VARCHAR(20);
 
 -- attack_events：新增 volume_ratio_at_attack 和 estimated_volume_growth_at_attack
 ALTER TABLE attack_events ADD COLUMN IF NOT EXISTS volume_ratio_at_attack NUMERIC(8,4);
