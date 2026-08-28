@@ -262,7 +262,7 @@ async def run_events(req: EventRequest, background_tasks: BackgroundTasks, db=De
             for d in dates_needed:
                 logger.info(f"[EVENT DATE START] task_id={task_id} date={d}")
                 if req.force_rerun:
-                    clear_events_for_date(db2, d, req.key_version, req.attack_version, req.outcome_version)
+                    clear_events_for_date(db2, d)
                 k = run_key_detection(db2, d, req.key_version,
                                       research_threshold=req.research_threshold)
                 a = run_attack_detection(db2, d, req.key_version, req.attack_version)
