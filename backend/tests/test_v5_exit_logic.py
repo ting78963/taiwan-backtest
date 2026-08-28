@@ -149,9 +149,9 @@ def test_t18_same_bar_tp_sl_intrabar_policy():
 
     # Conservative（預設）
     r_con = _determine_exit(1.0, 0.5, "0959", row, "conservative")
-    # conservative：SL 先 → timeout（SL 先觸及，TP 未先達成）
-    assert r_con["exit_reason"] == "timeout", (
-        f"conservative 應 timeout（SL先於TP），實際={r_con['exit_reason']}"
+    # conservative：SL 先 → sl 強制停損（SL 先觸及，exit_reason=sl）
+    assert r_con["exit_reason"] == "sl", (
+        f"conservative 應 sl（SL先於TP強制停損），實際={r_con['exit_reason']}"
     )
     assert r_con["hit"] is False
     assert r_con["same_bar_ambiguous"] is True, "same_bar_ambiguous 應為 True"

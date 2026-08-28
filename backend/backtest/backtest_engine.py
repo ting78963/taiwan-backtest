@@ -220,11 +220,12 @@ def _determine_exit(
             "same_bar_ambiguous": same_bar_ambiguous,
         }
 
-    # SL 先觸及（但不強制停損，記錄為 timeout，hit=False）
+    # SL 先觸及 → 強制停損，return = -sl%（固定，不用 cutoff close）
     if tp_hit_first is False:
+        sl_return = -float(sl) if sl else float(actual_return or 0)
         return {
-            "exit_reason": "timeout", "hit": False,
-            "observed_return_pct": float(actual_return or 0),
+            "exit_reason": "sl", "hit": False,
+            "observed_return_pct": sl_return,
             "exit_price": actual_exit_price,
             "mfe": mfe, "mae": mae,
             "tp_hit_time": raw_tp_time, "sl_hit_time": sl_time,
