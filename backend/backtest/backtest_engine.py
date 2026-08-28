@@ -46,7 +46,7 @@ DEFAULT_COMMISSION_DIS = 0.3
 DEFAULT_DAYTRADE_TAX   = 0.0015
 
 DEFAULT_ENTRY_MODES    = ["bar_close", "next_open", "next_close"]   # trigger 已移除
-DEFAULT_TP_LEVELS      = [0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 4.00, 5.00]
+DEFAULT_TP_LEVELS      = [0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00, 4.00, 5.00, 6.00, 7.00, 8.00, 9.00, 9.90]
 DEFAULT_SL_LEVELS      = [None, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50, 3.00]
 DEFAULT_ATTACK_NUMBERS = [2, 3, 4]
 DEFAULT_EXIT_TIMES     = ["0959", "1030", "1130", "close"]

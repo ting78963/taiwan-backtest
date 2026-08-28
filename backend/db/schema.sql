@@ -463,6 +463,13 @@ ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS attack_volume_v1a BIGINT;
 ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS c31_v1a           NUMERIC(8,4);
 ALTER TABLE backtest_trades ADD COLUMN IF NOT EXISTS early_high_pct    NUMERIC(8,4);
 
+-- outcome_data：新增 TP 6%~9.9% 欄位
+ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus600_time TIME;
+ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus700_time TIME;
+ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus800_time TIME;
+ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus900_time TIME;
+ALTER TABLE outcome_data ADD COLUMN IF NOT EXISTS first_plus990_time TIME;
+
 -- attack_events：新增 volume_ratio_at_attack 和 estimated_volume_growth_at_attack
 ALTER TABLE attack_events ADD COLUMN IF NOT EXISTS volume_ratio_at_attack NUMERIC(8,4);
 ALTER TABLE attack_events ADD COLUMN IF NOT EXISTS estimated_volume_growth_at_attack NUMERIC(10,2);
