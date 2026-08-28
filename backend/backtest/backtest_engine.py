@@ -347,11 +347,19 @@ def run_backtest(
         WHERE ae.date >= :df AND ae.date <= :dt
           AND ae.attack_version = :av
           AND (:rt IS NULL OR dc.early_high_pct >= :rt * 100)
+          AND (:max_ehp IS NULL OR dc.early_high_pct < :max_ehp)
           AND (:mvr IS NULL OR ae.volume_ratio_at_attack >= :mvr)
+          AND (:max_mvr IS NULL OR ae.volume_ratio_at_attack < :max_mvr)
+          AND (:atk_from IS NULL OR CAST(ae.end_time AS TIME) >= CAST(:atk_from AS TIME))
+          AND (:atk_to   IS NULL OR CAST(ae.end_time AS TIME) <  CAST(:atk_to   AS TIME))
           AND od.entry_mode = ANY(:ems)
         ORDER BY ae.date, ae.stock_id, ae.attack_number
     """), {"df": date_from, "dt": date_to, "av": av, "ov": ov,
            "rt": rt, "mvr": params.get("min_volume_ratio"),
+           "max_mvr":  params.get("max_volume_ratio"),
+           "max_ehp":  params.get("max_early_high_pct"),
+           "atk_from": params.get("attack_time_from"),
+           "atk_to":   params.get("attack_time_to"),
            "ems": entry_modes}).fetchall()
 
     if not all_rows:

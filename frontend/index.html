@@ -402,6 +402,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
           <label>量比門檻（Volume Ratio）</label>
           <select id="bt-min-vr">
             <option value="">不限（全部樣本）</option>
+            <option value="lt0.5">&lt; 0.5x（低量比）</option>
             <option value="1.5">&ge; 1.5x</option>
             <option value="2.0">&ge; 2.0x</option>
             <option value="2.5">&ge; 2.5x</option>
@@ -414,6 +415,23 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
           <div style="font-size:11px;color:var(--muted);margin-top:4px">
             動態量比 = 截至 Attack 確認時間的當日累積成交量 ÷ 前一交易日全天成交量
           </div>
+        </div>
+        <div class="fg">
+          <label>Early High 範圍 (%)</label>
+          <select id="bt-early-high">
+            <option value="">不限（預設 ≥3.5%）</option>
+            <option value="3-5">3% ～ &lt;5%</option>
+            <option value="5-8">5% ～ &lt;8%</option>
+            <option value="ge3">≥ 3%（含全部）</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Attack 時段</label>
+          <select id="bt-atk-time">
+            <option value="">不限</option>
+            <option value="0900-0930">09:00～09:29（開盤前半）</option>
+            <option value="0930-1000">09:30～09:59（開盤後半）</option>
+          </select>
         </div>
       </div>
 
@@ -1773,7 +1791,23 @@ async function checkCoverage(){
 
 // ─── Backtest ────────────────────────────────────────────
 async function startBacktest(){
+  // VR：lt0.5 = max<0.5，其他 = min>=值
   const rawVr = document.getElementById('bt-min-vr').value;
+  const minVr = (rawVr && rawVr !== 'lt0.5') ? parseFloat(rawVr) : null;
+  const maxVr = rawVr === 'lt0.5' ? 0.5 : null;
+  // Early High range
+  const ehVal = document.getElementById('bt-early-high').value;
+  const ehMap = { '': [null, null], '3-5': [3.0, 5.0], '5-8': [5.0, 8.0], 'ge3': [3.0, null] };
+  const [minEh, maxEh] = ehMap[ehVal] || [null, null];
+  const rt = (minEh !== null) ? minEh / 100 : null;  // research_threshold 用比例
+  // Attack 時段
+  const atkTimeVal = document.getElementById('bt-atk-time').value;
+  const atkTimeMap = {
+    '':          { attack_time_from: null,        attack_time_to: null },
+    '0900-0930': { attack_time_from: '09:00:00',  attack_time_to: '09:30:00' },
+    '0930-1000': { attack_time_from: '09:30:00',  attack_time_to: '10:00:00' },
+  };
+  const { attack_time_from, attack_time_to } = atkTimeMap[atkTimeVal] || {};
   const body = {
     run_name:           document.getElementById('bt-name').value,
     date_from:          document.getElementById('bt-from').value,
@@ -1785,8 +1819,13 @@ async function startBacktest(){
     tp_levels:          getChecked('tp').map(Number),
     sl_levels:          getChecked('sl').map(v=>v==='null'?null:parseFloat(v)),
     exit_times:         getChecked('exit_time'),
-    min_volume_ratio:   rawVr ? parseFloat(rawVr) : null,
+    min_volume_ratio:   minVr,
+    max_volume_ratio:   maxVr,
+    max_early_high_pct: maxEh,
+    attack_time_from:   attack_time_from || null,
+    attack_time_to:     attack_time_to   || null,
   };
+  if (rt !== null) body.research_threshold = rt;
   if(!body.date_from||!body.date_to) return alert('請填寫日期');
   const btn = document.getElementById('btn-run');
   const se  = document.getElementById('bt-status');
