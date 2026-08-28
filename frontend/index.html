@@ -1777,7 +1777,7 @@ async function startEvents(force){
     key_version:     document.getElementById('ev-kv').value,
     attack_version:  document.getElementById('ev-av').value,
     outcome_version: 'V1',
-    force_rebuild:   force,
+    force_rerun:     force,
   };
   if(!body.date_from||!body.date_to) return alert('請填寫日期');
   const se = document.getElementById('ev-status');
