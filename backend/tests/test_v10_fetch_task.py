@@ -276,6 +276,58 @@ def test_t61_candidate_filter_logic():
 # 執行
 # ────────────────────────────────────────────────────────────
 
+def test_t62_force_rerun_uses_all_data_dates():
+    """
+    force_rerun=True 時，main.py 必須使用 get_all_data_dates()（全部 data_dates），
+    不論 event_runs 完成了幾天。
+    驗證：main.py /api/events/run 的路由有 force_rerun 分支邏輯。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    # force_rerun=True → get_all_data_dates
+    assert "req.force_rerun" in main_src, "必須有 force_rerun 分支"
+    assert "get_all_data_dates" in main_src, "force_rerun=True 應呼叫 get_all_data_dates"
+    # force_rerun=False → get_dates_needing_events
+    assert "get_dates_needing_events" in main_src, "force_rerun=False 應呼叫 get_dates_needing_events"
+    # 語意確認：同一個 events/run handler 裡 force_rerun 在 get_dates_needing_events 之前
+    handler_start = main_src.find("/api/events/run")
+    handler_block = main_src[handler_start:handler_start+3000]
+    pos_force = handler_block.find("req.force_rerun")
+    pos_normal = handler_block.find("get_dates_needing_events")
+    assert 0 < pos_force < pos_normal, "force_rerun 分支應在一般邏輯之前"
+
+    print("✓ T62 PASS — force_rerun=True 使用 get_all_data_dates（不受 event_runs 限制）")
+    print("   force_rerun=False 維持原有 get_dates_needing_events 行為")
+
+
+def test_t63_force_rerun_log_message():
+    """
+    force_rerun 分支必須有明確 log，區分 force=True/False 與 dates_needed 數量。
+    """
+    main_src = open(os.path.join(os.path.dirname(__file__), "..", "main.py")).read()
+    assert "force_rerun=True" in main_src, "應有 force_rerun=True 的 log"
+    assert "force_rerun=False" in main_src, "應有 force_rerun=False 的 log"
+    assert "dates_needed=" in main_src, "應 log dates_needed 數量"
+    print("✓ T63 PASS — force_rerun 分支有明確 log 輸出")
+
+
+def test_t64_get_all_data_dates_exists():
+    """
+    event_manager.py 必須有 get_all_data_dates 函數，
+    只查 data_inventory，不過濾 event_runs。
+    """
+    em_src = open(os.path.join(os.path.dirname(__file__), "..", "events", "event_manager.py")).read()
+    assert "def get_all_data_dates" in em_src, "event_manager 應有 get_all_data_dates 函數"
+    assert "data_inventory" in em_src[em_src.find("def get_all_data_dates"):
+                                       em_src.find("def get_all_data_dates")+300],         "get_all_data_dates 應查 data_inventory"
+    # 確認不查 event_runs（不受完成狀態影響）
+    # 取函數體直到下一個 def（避免誤抓鄰近函數的 event_runs）
+    fn_start = em_src.find("def get_all_data_dates")
+    fn_end = em_src.find("\ndef ", fn_start + 10)
+    fn_body = em_src[fn_start:fn_end] if fn_end > 0 else em_src[fn_start:fn_start+400]
+    assert "event_runs" not in fn_body, "get_all_data_dates 不應過濾 event_runs"
+    print("✓ T64 PASS — get_all_data_dates 只查 data_inventory，不受 event_runs 限制")
+
+
 def run_all():
     tests = [
         test_t54_background_function_executes,
@@ -286,6 +338,9 @@ def run_all():
         test_t59_completed_date_skipped,
         test_t60_collection_threshold_unchanged,
         test_t61_candidate_filter_logic,
+        test_t62_force_rerun_uses_all_data_dates,
+        test_t63_force_rerun_log_message,
+        test_t64_get_all_data_dates_exists,
     ]
     passed = failed = 0
     print("=" * 60)

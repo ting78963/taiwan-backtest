@@ -67,6 +67,16 @@ def get_dates_needing_events(
     return need
 
 
+def get_all_data_dates(db: Session, date_from: date, date_to: date) -> list:
+    """取指定範圍內所有有 market_data 的交易日，只查 data_inventory。force_rerun 用。"""
+    rows = db.execute(text("""
+        SELECT date FROM data_inventory
+        WHERE date >= :df AND date <= :dt AND fetch_status = 'done'
+        ORDER BY date
+    """), {"df": date_from, "dt": date_to}).fetchall()
+    return sorted(r[0] for r in rows)
+
+
 def clear_events_for_date(db: Session, target_date: date):
     """
     清除某日期的所有事件資料。
