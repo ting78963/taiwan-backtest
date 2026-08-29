@@ -73,15 +73,40 @@ def _request(dataset: str, params: dict, retry: int = 3) -> Optional[pd.DataFram
     return None
 
 
+def _get_listed_universe() -> set:
+    """
+    從 TaiwanStockInfo 取上市(twse)+上櫃(tpex) 的 stock_id 集合。
+    每個 stock_id 取最新一筆，排除興櫃及其他市場。
+    """
+    df = _request("TaiwanStockInfo", {})
+    if df is None or df.empty:
+        logger.error("[FinMind] TaiwanStockInfo 無資料，無法建立上市+上櫃 universe，停止本次 fetch")
+        return None
+    # 每個 stock_id 取 date 最新一筆
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = df.sort_values("date").groupby("stock_id").last().reset_index()
+    # 只保留 twse / tpex
+    universe = set(df.loc[df["type"].isin(["twse", "tpex"]), "stock_id"].astype(str))
+    logger.info(f"[FinMind] 上市+上櫃 universe: {len(universe)} 支")
+    return universe
+
+
 def fetch_market_daily_screen(target_date: date) -> Optional[pd.DataFrame]:
     """
     Stage 1：全市場當日日線（1 次 request）。
 
     只傳 start_date=target_date，不傳 end_date 和 data_id。
     回傳當天所有股票的收盤漲幅和成交量。
+    先用 TaiwanStockInfo 過濾只保留上市+上櫃。
     """
     date_str = target_date.strftime("%Y-%m-%d")
     logger.info(f"[FinMind] fetch_market_daily_screen date={target_date}")
+
+    # 建立上市+上櫃 universe（排除興櫃）
+    universe = _get_listed_universe()
+    if universe is None:
+        logger.error(f"[FinMind] 無法取得 universe，fetch_market_daily_screen 中止 date={target_date}")
+        return None
 
     df = _request("TaiwanStockPrice", {
         "start_date": date_str,
@@ -111,7 +136,10 @@ def fetch_market_daily_screen(target_date: date) -> Optional[pd.DataFrame]:
     else:
         df["change_pct"] = 0.0
 
-    logger.info(f"[FinMind] 全市場日線 {target_date}: {len(df)} 筆")
+    # 用 universe 過濾，只保留上市+上櫃
+    df["stock_id"] = df["stock_id"].astype(str)
+    df = df[df["stock_id"].isin(universe)].copy()
+    logger.info(f"[FinMind] 全市場日線 {target_date}: {len(df)} 筆（上市+上櫃，已排除興櫃）")
     return df[["stock_id", "close", "volume_zhang", "change_pct", "spread"]].copy()
 
 
@@ -224,7 +252,6 @@ def fetch_candidates(
         df["prev_close"] = df["close"]
 
     mask = (
-        df["stock_id"].astype(str).str.fullmatch(r"\d{4}", na=False) &
         (df["change_pct"]   >= min_change_pct) &
         (df["volume_zhang"] >= min_volume_zhang)
     )
