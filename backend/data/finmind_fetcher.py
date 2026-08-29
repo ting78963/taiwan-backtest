@@ -83,7 +83,8 @@ def _get_listed_universe() -> set:
         logger.error("[FinMind] TaiwanStockInfo 無資料，無法建立上市+上櫃 universe，停止本次 fetch")
         return None
     # 每個 stock_id 取 date 最新一筆
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df.dropna(subset=["date"])
     df = df.sort_values("date").groupby("stock_id").last().reset_index()
     # 只保留 twse / tpex
     universe = set(df.loc[df["type"].isin(["twse", "tpex"]), "stock_id"].astype(str))
