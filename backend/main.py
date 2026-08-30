@@ -216,6 +216,7 @@ async def fetch_data(req: FetchRequest, background_tasks: BackgroundTasks, db=De
                 db2, req.date_from, req.date_to,
                 req.collection_threshold,
                 req.min_volume_zhang,
+                force_refetch=req.force_refetch,
             )
             logger.info(f"[FETCH TASK COMPLETED] task_id={task_id} result={result}")
             set_task(task_id, "done", **result)

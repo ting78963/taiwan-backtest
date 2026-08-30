@@ -104,6 +104,7 @@ def fetch_and_store_single_date(
     target_date: date,
     price_threshold: float = DEFAULT_PRICE_THRESHOLD,
     min_volume_zhang: int  = DEFAULT_MIN_VOLUME_ZHANG,
+    force_refetch: bool    = False,
 ) -> dict:
     logger.info(f"[FETCH DATE START] date={target_date} threshold={price_threshold*100:.0f}% min_vol={min_volume_zhang}張")
     stats = {"fetched": 0, "skipped": 0, "errors": 0, "candidates": 0}
@@ -150,6 +151,15 @@ def fetch_and_store_single_date(
 
             # 2b：取 1 分 K
             logger.info(f"[FETCH STEP] date={target_date} step=kbar stock_id={stock_id}")
+            # 非 force 模式：已有任一 market_data 記錄就跳過 KBar
+            if not force_refetch:
+                existing = db.execute(text(
+                    "SELECT 1 FROM market_data WHERE date=:d AND stock_id=:s LIMIT 1"
+                ), {"d": target_date, "s": stock_id}).fetchone()
+                if existing:
+                    stats["skipped"] += 1
+                    continue
+
             df = fetch_1min_kbar(stock_id, target_date)
             time.sleep(0.1)
 
@@ -216,9 +226,20 @@ def fetch_missing_dates(
     date_to: date,
     price_threshold: float = DEFAULT_PRICE_THRESHOLD,
     min_volume_zhang: int  = DEFAULT_MIN_VOLUME_ZHANG,
+    force_refetch: bool    = False,
 ) -> dict:
-    logger.info(f"[FETCH MISSING DATES] from={date_from} to={date_to}")
-    missing = get_missing_dates(db, date_from, date_to, price_threshold)
+    logger.info(f"[FETCH MISSING DATES] from={date_from} to={date_to} force={force_refetch}")
+    if force_refetch:
+        # force=True：取指定範圍所有有 data_inventory 記錄的日期，不過濾已完成
+        rows = db.execute(text("""
+            SELECT date FROM data_inventory
+            WHERE date >= :df AND date <= :dt
+            ORDER BY date
+        """), {"df": date_from, "dt": date_to}).fetchall()
+        missing = [r[0] for r in rows]
+        logger.info(f"[FETCH MISSING DATES] force=True → {len(missing)} 天")
+    else:
+        missing = get_missing_dates(db, date_from, date_to, price_threshold)
 
     if not missing:
         logger.info("[FETCH MISSING DATES] count=0")
@@ -227,7 +248,7 @@ def fetch_missing_dates(
     logger.info(f"[FETCH MISSING DATES] count={len(missing)} dates={[str(d) for d in missing]}")
     results = []
     for d in missing:
-        r = fetch_and_store_single_date(db, d, price_threshold, min_volume_zhang)
+        r = fetch_and_store_single_date(db, d, price_threshold, min_volume_zhang, force_refetch)
         results.append({"date": str(d), **r})
 
     logger.info(f"[FETCH TASK COMPLETED] results={results}")
