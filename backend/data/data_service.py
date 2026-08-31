@@ -211,6 +211,7 @@ def fetch_and_store_single_date(
             )
 
         except Exception as e:
+            db.rollback()
             logger.error(f"[FETCH ERROR] date={target_date} stock_id={stock_id} error={e}")
             stats["errors"] += 1
             continue
