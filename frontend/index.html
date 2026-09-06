@@ -414,6 +414,7 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
           <select id="bt-min-vr">
             <option value="">不限（全部樣本）</option>
             <option value="lt0.5">&lt; 0.5x（低量比）</option>
+            <option value="0.5-1.5">0.5x ～ &lt;1.5x（中量比）</option>
             <option value="1.5">&ge; 1.5x</option>
             <option value="2.0">&ge; 2.0x</option>
             <option value="2.5">&ge; 2.5x</option>
@@ -1802,10 +1803,10 @@ async function checkCoverage(){
 
 // ─── Backtest ────────────────────────────────────────────
 async function startBacktest(){
-  // VR：lt0.5 = max<0.5，其他 = min>=值
+  // VR：lt0.5 = max<0.5；0.5-1.5 = 0.5<=VR<1.5；其他 = min>=值
   const rawVr = document.getElementById('bt-min-vr').value;
-  const minVr = (rawVr && rawVr !== 'lt0.5') ? parseFloat(rawVr) : null;
-  const maxVr = rawVr === 'lt0.5' ? 0.5 : null;
+  const minVr = rawVr === '0.5-1.5' ? 0.5 : ((rawVr && rawVr !== 'lt0.5') ? parseFloat(rawVr) : null);
+  const maxVr = rawVr === 'lt0.5' ? 0.5 : (rawVr === '0.5-1.5' ? 1.5 : null);
   // Early High range
   const ehVal = document.getElementById('bt-early-high').value;
   const ehMap = { '': [null, null], '3-5': [3.0, 5.0], '5-8': [5.0, 8.0], 'ge3': [3.0, null] };
